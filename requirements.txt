@@ -1,0 +1,4 @@
+torch
+numpy
+python-dotenv
+git+https://github.com/Boritech-Solutions/PyEarthworm

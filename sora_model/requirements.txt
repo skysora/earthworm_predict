@@ -1,0 +1,23 @@
+charset-normalizer==2.1.1
+contourpy==1.0.6
+cycler==0.11.0
+Cython==0.29.32
+fonttools==4.38.0
+idna==3.4
+kiwisolver==1.4.4
+matplotlib==3.6.2
+numpy==1.24.1
+packaging==22.0
+pandas==1.4.2
+Pillow==9.3.0
+PyEarthworm @ git+https://github.com/Boritech-Solutions/PyEarthworm@193e44945458b934e5b67dd31d5b70d81da0ee5b
+pyparsing==3.0.9
+python-dateutil==2.8.2
+python-dotenv==0.21.0
+pytz==2022.7
+requests==2.28.1
+scipy==1.8.0
+six==1.16.0
+staticmap==0.5.5
+typing_extensions==4.4.0
+urllib3==1.26.13
