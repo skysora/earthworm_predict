@@ -744,7 +744,8 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
                         warning_msg += f"Warning time: {datetime.utcfromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S.%f')}:"
                         warning_msg += f"{target_city[city_index][0]},{target_city[city_index][-1]}\n"
                         target_city_plot.append(target_city)
-        
+                        
+            multi_station_msg_notify(warning_msg)
         if Flag:
             warning_plot_TF.value+=1
             # get the filenames

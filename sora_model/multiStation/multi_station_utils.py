@@ -88,3 +88,28 @@ def multi_station_plot_notify(name):
             print(f"Success waveform prediction -> {response.text}")
     except Exception as e:
         print(e)
+        
+# send the picking info to Line notify
+def multi_station_msg_notify(msg):
+    token = "uAUGiQLwsDHPjahFHAPWEmTztOFipJIB4O8bmhaFlLm"
+    
+    message = f"Prediction: {msg}\n"
+
+    try:
+        url = "https://notify-api.line.me/api/notify"
+        headers = {
+            'Authorization': f'Bearer {token}'
+        }
+        payload = {
+            'message': message,
+        }
+        response = requests.request(
+            "POST",
+            url,
+            headers=headers,
+            data=payload,
+        )
+        if response.status_code == 200:
+            print(f"Success waveform prediction -> {response.text}")
+    except Exception as e:
+        print(e)
