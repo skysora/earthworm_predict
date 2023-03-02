@@ -18,6 +18,7 @@ import sys
 import bisect
 from scipy.stats import norm
 sys.path.append('../')
+from tqdm import tqdm
 
 from dotenv import dotenv_values
 #from model_resnet import ResNet18
@@ -508,6 +509,8 @@ def Shower(waveform_plot, waveform_plot_prediction, waveform_plot_picktime, wave
 def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, waveform_buffer_start_time, 
                             env_config, target_city,warning_plot_TF,stationInfo,target_city_plot,needed_wave_input):
     
+    
+
     MyModule = PyEW.EWModule(int(env_config["WAVE_RING_ID"]), int(env_config["PYEW_MODULE_ID"]), int(env_config["PYEW_INST_ID"]), 30.0, False)
     MyModule.add_ring(int(env_config["WAVE_RING_ID"])) # WAVE_RING
     MyModule.add_ring(int(env_config["PICK_RING_ID"])) # PICK_RING
@@ -517,10 +520,11 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
     # flush PICK_RING
     while MyModule.get_bytes(1, int(env_config["PICK_MSG_TYPE"])) != (0, 0):
         wave_count += 1
+
         continue
     
-
-    # time.sleep(30)
+    # for _ in tqdm(range(30)):
+    #   time.sleep(1)
  
     # initialize and load model
     config = json.load(open(os.path.join(env_config["MULTISTATION_FILEPATH"]), 'r'))
@@ -542,6 +546,11 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
     dataDepth = {}
     datContent = [i.strip().split() for i in open("./nsta/nsta24.dat").readlines()]
     target_coord = pd.read_csv(env_config["MULTISTATION_TARTGET_COORD"])
+    target_coord_input = []
+    for i in range(len(target_coord)):
+        target_coord_input.append([target_coord.iloc[i]['lon'],target_coord.iloc[i]['lat'],0])
+    target_coord_input = np.array(target_coord_input).reshape(-1,15,3)
+    
     # make depth table
     for row in datContent:
         key = f"{row[0]}_HLZ_{row[7]}_0{row[5]}"
@@ -556,6 +565,7 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
     # listen PICK_RING
     Test = False
     cnt = 0
+    
     while True:
         
         log_msg = "============================"
@@ -564,7 +574,7 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
             pick_msg = MyModule.get_bytes(1, PICK_MSG_TYPE)
             
             # if there's no data and waiting list is empty
-            if pick_msg == (0, 0) and len(wait_list) == 0:
+            if pick_msg == (0, 0) and len(wait_list) == 0 and len(needed_station)==0:
                 continue
 
             # if get picked station, then get its info and add to waiting list
@@ -580,17 +590,9 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
                     continue
                 wait_list.append(pick_str)
 
-            #清空前25測站資訊
-            if (len(needed_station)==1):
-                start_count = datetime.utcfromtimestamp(time.time())
-            if(len(needed_station)>=1):    
-                now_sub = (datetime.utcfromtimestamp(time.time()) -  start_count)
-                if(now_sub.total_seconds()>60):
-                    needed_station = []
-                    print(f"clear first 25 station:{datetime.utcfromtimestamp(time.time())}")
-            #append first 25 station
+
             while (len(wait_list)!=0) and (len(needed_station)<25):
-                print(f"get data Start:{datetime.utcfromtimestamp(time.time())}")
+               #print(f"get data Start:{datetime.utcfromtimestamp(time.time())}")
                 log_msg += "\n[" + str(time.time()) + "] " + str(wait_list[0])
                 # get the first one data in waiting list
                 pick_info = wait_list[0].split()
@@ -606,25 +608,18 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
 
                 # for tankplayer testing
                 if channel == 'HHZ': 
-                    channel = ['Ch7', 'Ch8', 'Ch9']
+                   channel = ['Ch7', 'Ch8', 'Ch9']
                 elif channel == 'EHZ': 
-                    channel = ['Ch4', 'Ch5', 'Ch6']
+                   channel = ['Ch4', 'Ch5', 'Ch6']
                 elif channel == 'HLZ': 
-                    channel = ['Ch1', 'Ch2', 'Ch3']
+                   channel = ['Ch1', 'Ch2', 'Ch3']
                     
                 scnl_z = f"{station}_{channel[0]}_{network}_{location}"
                 scnl_n = f"{station}_{channel[1]}_{network}_{location}"
                 scnl_e = f"{station}_{channel[2]}_{network}_{location}"
                 # for tankplayer testing
                 
-                
-                # search depth
-                if(scnl in dataDepth.keys()):
-                    coords = np.array([pick_info[4],pick_info[5],dataDepth[scnl]])
-                else:
-                    coords = np.array([pick_info[4],pick_info[5],0.0])
-                    
-                
+
                 # One of 3 channel is not in key_index(i.e. waveform)
            
                 if (scnl_z not in key_index) or (scnl_n not in key_index) or (scnl_e not in key_index):
@@ -633,8 +628,34 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
                     continue
 
                 needed_station.append(scnl)
-                needed_coord[0,len(needed_wave)-1] = coords
                 wait_list.popleft()
+            
+            #紀錄地震開始第一個測站Picking時間
+            if (len(needed_station)==1):
+                # get the filenames
+                cur = datetime.fromtimestamp(time.time())
+                warning_logfile = f"./warning_log/warning/{cur.year}-{cur.month}-{cur.day}_warning_chunk{env_config['CHUNK']}.log"
+                start_count = datetime.utcfromtimestamp(time.time())
+                with open(warning_logfile,"a") as pif:
+                    pif.write(f"First Station Picking time: {start_count.strftime('%Y-%m-%d %H:%M:%S.%f')}")
+                    pif.write('='*25)
+                    pif.write('\n')
+                
+            #清空前25測站資訊
+            if(len(needed_station)>=1):    
+                now_sub = (datetime.utcfromtimestamp(time.time()) -  start_count)
+                if(now_sub.total_seconds()>60):
+                    needed_station = []
+                    with open(warning_logfile,"a") as pif:
+                        pif.write(f"clear first 25 station:{datetime.utcfromtimestamp(time.time())}")
+                        pif.write('='*25)
+                        pif.write('\n')
+                    #multi_station_msg_notify("第一個測站pick後60s清空測站")
+                    for i in range(len(target_coord)):
+                      target_city[i] = [target_coord.iloc[i]['city'],target_coord.iloc[i]['lat'],target_coord.iloc[i]['lon'],[0,0,0,0]]
+                    needed_coord = np.zeros((1,25, 3))
+                    needed_wave_tensor = np.zeros((1,25,3,3000))
+            #append first 25 station
             
             # append first 25 station waveform
             for station_index in range(len(needed_station)):
@@ -645,18 +666,25 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
                 network = scnl.split('_')[2]
                 location = scnl.split('_')[3]
                 
-
+                # search depth
+                if(scnl in dataDepth.keys()):
+                    coords = np.array([pick_info[5],pick_info[4],dataDepth[scnl]/100])
+                else:
+                    coords = np.array([pick_info[5],pick_info[4],0.0])
+                    
+                needed_coord[0,station_index,:] = coords
+    
                 scnl_z = f"{station}_{channel[:-1]}Z_{network}_{location}"
                 scnl_n = f"{station}_{channel[:-1]}N_{network}_{location}"
                 scnl_e = f"{station}_{channel[:-1]}E_{network}_{location}"
                 
                 # for tankplayer testing
                 if channel == 'HHZ': 
-                    channel = ['Ch7', 'Ch8', 'Ch9']
+                   channel = ['Ch7', 'Ch8', 'Ch9']
                 elif channel == 'EHZ': 
-                    channel = ['Ch4', 'Ch5', 'Ch6']
+                   channel = ['Ch4', 'Ch5', 'Ch6']
                 elif channel == 'HLZ': 
-                    channel = ['Ch1', 'Ch2', 'Ch3']
+                   channel = ['Ch1', 'Ch2', 'Ch3']
                     
                 scnl_z = f"{station}_{channel[0]}_{network}_{location}"
                 scnl_n = f"{station}_{channel[1]}_{network}_{location}"
@@ -683,30 +711,34 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
                 #(1,25,3,3000)
                 needed_wave_tensor[0,station_index] = inp
 
-            
             #處理factor
             if(len(needed_station)>1):
-                station_factor_coords = get_Palert_CWB_coord(np.array(needed_station), stationInfo)
-                # count to gal
-                factor = np.array([f[-1] for f in station_factor_coords]).astype(float)
-
-                needed_wave_tensor[:,:len(needed_station)] = needed_wave_tensor[:,:len(needed_station)]/factor[:, None, None]
+                try:
+                    station_factor_coords = get_Palert_CWB_coord(np.array(needed_station), stationInfo)
+                    # count to gal
+                    factor = np.array([f[-1] for f in station_factor_coords]).astype(float)
+                    needed_wave_tensor[:,:len(needed_station)] = needed_wave_tensor[:,:len(needed_station)]/factor[:, None, None]
+                except:
+                    station_factor_coords = get_coord_factor(np.array(needed_station), stationInfo)
+                    # count to gal
+                    factor = np.array([f[-1] for f in station_factor_coords]).astype(float)
+                    needed_wave_tensor[:,:len(needed_station)] = needed_wave_tensor[:,:len(needed_station)]/factor[None,:, :,None]
         else:
             pass
-        print(f"get data End:{datetime.utcfromtimestamp(time.time())}")
+        #print(f"get data End:{datetime.utcfromtimestamp(time.time())}")
         
         # print(f"{cnt}.png")
         # print(needed_wave_tensor.shape)
         # plot_wave(needed_wave_tensor,f"{cnt}.png")
         # cnt+=1
-            
+        
         if(len(needed_coord)>0):
             #波型、座標、目標座標
-            
-            target_coord_input = np.array([target_coord['lat'],target_coord['lon'],[0]*len(target_coord['lon'])]).reshape(-1,15,3)
             needed_wave_input_noshared = np.transpose(needed_wave_tensor,(0,1,3,2))/100
             needed_wave_input_noshared = np.repeat(needed_wave_input_noshared,target_coord_input.shape[0], axis=0)
             needed_coord_input = np.tile(needed_coord,target_coord_input.shape[0]).reshape(target_coord_input.shape[0],25,3)
+            # print(f"needed_coord_input:{needed_coord_input}")
+            # print(f"target_coord_input:{target_coord_input}")
             # print(f"{cnt}.png")
             # print(needed_wave_tensor.shape)
             # plot_wave(needed_wave_input_noshared[0],f"{cnt}.png")
@@ -724,34 +756,39 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
                 
             # output:(45,4)
             pga_times_pre = pga_times_pre.reshape(-1,pga_thresholds.shape[0])
-
+            
             #檢查是否有新要預警的測站
-            Flag = False
+            warn_Flag = False
             warning_msg=""
             for city_index in range(pga_times_pre.shape[0]):
                 #update 表格
                 if(set(target_city[city_index][-1]) != set(pga_times_pre[city_index])):
-                    indices = [index for (index, item) in enumerate(pga_times_pre[city_index]) if item == 1]
+                    
+                    indices = [index for (index, item) in enumerate(pga_times_pre[city_index]) if item ==1 ]
                     for warning_thresholds in range(len(pga_thresholds)):
                         if(warning_thresholds in indices):
-                            target_city[city_index][-1][warning_thresholds] = True
-                            Flag = True
+                            target_city[city_index][-1][warning_thresholds] += 1
                         else:
-                            target_city[city_index][-1][warning_thresholds] = False
-                            
+                            target_city[city_index][-1][warning_thresholds] += 0
+                       
                     if (len(indices)!=0):
-                        print(f"Warning time: {datetime.utcfromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S.%f')}:{target_city[city_index][0]},{target_city[city_index][-1]}\n")
-                        warning_msg += f"Warning time: {datetime.utcfromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S.%f')}:"
-                        warning_msg += f"{target_city[city_index][0]},{target_city[city_index][-1]}\n"
-                        target_city_plot.append(target_city)
-                        
-            multi_station_msg_notify(warning_msg)
-        if Flag:
+                        Flag = True
+                        for indice in indices:
+                            for index in range(indice,-1,-1):
+                                if(target_city[city_index][-1][index]==0):
+                                    #不預警
+                                    Flag=False
+                        if Flag:
+                            print(f"Warning time: {datetime.utcfromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S.%f')}:{target_city[city_index][0]},{target_city[city_index][-1]}\n")
+                            warning_msg += f"{cnt} Warning time: {datetime.utcfromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S.%f')}:"
+                            warning_msg += f"{target_city[city_index][0]},三級:{target_city[city_index][-1][0]},四級:{target_city[city_index][-1][1]},五弱級:{target_city[city_index][-1][2]},五強級:{target_city[city_index][-1][3]}\n"
+                            target_city_plot.append(target_city)
+                            warn_Flag = True
+                            cnt += 1
+        
+        if warn_Flag:
+            # multi_station_msg_notify(warning_msg)
             warning_plot_TF.value+=1
-            # get the filenames
-            cur = datetime.fromtimestamp(time.time())
-            warning_logfile = f"./warning_log/warning/{cur.year}-{cur.month}-{cur.day}_warning_chunk{env_config['CHUNK']}.log"
-
             # 已經是系統時間的隔天，檢查有沒有過舊的 log file，有的話將其刪除
             if f"{system_year}-{system_month}-{system_day}" != f"{cur.year}-{cur.month}-{cur.day}" or True:
                 toDelete_picking = cur - timedelta(days=int(env_config['DELETE_PICKINGLOG_DAY']))
@@ -768,15 +805,9 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
             
             # writing picking log file
             with open(warning_logfile,"a") as pif:
-                cur_time = datetime.utcfromtimestamp(time.time())
-                pif.write('='*25)
-                pif.write(f"Report time: {cur_time.strftime('%Y-%m-%d %H:%M:%S.%f')}")
-                pif.write('='*25)
-                pif.write('\n')
                 pif.write(warning_msg)
                 pif.write('\n')
-                pif.close()
-                    
+                pif.close()                 
       
 # plotting
 def WarningShower(target_city_plot,warning_plot_TF,needed_wave_input):
@@ -835,7 +866,7 @@ if __name__ == '__main__':
         target_city={}
         target_city_plot = manager.list()
         for i in range(len(target_coord)):
-            target_city[i] = [target_coord.iloc[i]['city'],target_coord.iloc[i]['lat'],target_coord.iloc[i]['lon'],[False,False,False,False]]
+            target_city[i] = [target_coord.iloc[i]['city'],target_coord.iloc[i]['lon'],target_coord.iloc[i]['lat'],[0,0,0,0]]
         
         # a deque from time-3000 to time for time index
         nowtime = Value('d', int(time.time()*100))
