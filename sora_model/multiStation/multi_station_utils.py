@@ -16,6 +16,8 @@ def plot_taiwan(target_city,name):
             max_pga_level=False
         
         if(max_pga_level):
+            # print("Draw")
+            # print(target_city[index][0])
             if(max_pga_level==0):
                 color="#00FFFF"
             elif(max_pga_level==1):
@@ -25,7 +27,7 @@ def plot_taiwan(target_city,name):
             else:
                 color="#E60000"
             
-            marker = CircleMarker([sta[1], sta[2]], color, 10) 
+            marker = CircleMarker([sta[2], sta[1]], color, 10) 
             m.add_marker(marker)
         
     

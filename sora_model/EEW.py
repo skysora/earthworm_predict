@@ -540,7 +540,7 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
     
     # 記錄目前 year, month, day，用於刪除過舊的 log files
     cur = datetime.fromtimestamp(time.time())
-    system_year, system_month, system_day = cur.year, cur.month, cur.day
+    system_year, system_month, system_day, system_hour = cur.year, cur.month, cur.day,cur.hour
     
     # read .dat to a list of lists
     dataDepth = {}
@@ -590,7 +590,7 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
                     continue
                 wait_list.append(pick_str)
 
-
+            #append first 25 station
             while (len(wait_list)!=0) and (len(needed_station)<25):
                #print(f"get data Start:{datetime.utcfromtimestamp(time.time())}")
                 log_msg += "\n[" + str(time.time()) + "] " + str(wait_list[0])
@@ -655,8 +655,13 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
                       target_city[i] = [target_coord.iloc[i]['city'],target_coord.iloc[i]['lat'],target_coord.iloc[i]['lon'],[0,0,0,0]]
                     needed_coord = np.zeros((1,25, 3))
                     needed_wave_tensor = np.zeros((1,25,3,3000))
-            #append first 25 station
             
+            # 每小時發一個 notify，證明系統還活著
+            if f"{system_year}-{system_month}-{system_day}-{system_hour}" != f"{cur.year}-{cur.month}-{cur.day}-{cur.hour}":
+                multi_station_msg_notify("system live")
+                system_hour = cur.hour
+
+
             # append first 25 station waveform
             for station_index in range(len(needed_station)):
                 scnl = needed_station[station_index]
@@ -763,7 +768,6 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
             for city_index in range(pga_times_pre.shape[0]):
                 #update 表格
                 if(set(target_city[city_index][-1]) != set(pga_times_pre[city_index])):
-                    
                     indices = [index for (index, item) in enumerate(pga_times_pre[city_index]) if item ==1 ]
                     for warning_thresholds in range(len(pga_thresholds)):
                         if(warning_thresholds in indices):
@@ -778,6 +782,11 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
                                 if(target_city[city_index][-1][index]==0):
                                     #不預警
                                     Flag=False
+                            if (not Flag) :
+                                target_city[city_index][-1][indice] -= 1
+                            if(Flag) and (target_city[city_index][-1][indice]>1):
+                                Flag = False
+                                
                         if Flag:
                             print(f"Warning time: {datetime.utcfromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S.%f')}:{target_city[city_index][0]},{target_city[city_index][-1]}\n")
                             warning_msg += f"{cnt} Warning time: {datetime.utcfromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S.%f')}:"
@@ -787,8 +796,8 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
                             cnt += 1
         
         if warn_Flag:
-            # multi_station_msg_notify(warning_msg)
-            warning_plot_TF.value+=1
+            multi_station_msg_notify(warning_msg)
+            warning_plot_TF.value += 1
             # 已經是系統時間的隔天，檢查有沒有過舊的 log file，有的話將其刪除
             if f"{system_year}-{system_month}-{system_day}" != f"{cur.year}-{cur.month}-{cur.day}" or True:
                 toDelete_picking = cur - timedelta(days=int(env_config['DELETE_PICKINGLOG_DAY']))
@@ -834,7 +843,7 @@ def WarningShower(target_city_plot,warning_plot_TF,needed_wave_input):
         if isNotify:
 
             plot_taiwan(target_city_plot[0],filename)
-            target_city_plot.pop(0)
+            target_city_plot.pop()
             plot_wave(needed_wave_input[0],wave_filename)
             multi_station_plot_notify(filename) 
             multi_station_plot_notify(wave_filename) 
@@ -925,8 +934,8 @@ if __name__ == '__main__':
                                                                               needed_wave_input))
         multi_station_handler.start()
         
-        # wave_shower = Process(target=WarningShower, args=(target_city_plot,warning_plot_TF,needed_wave_input))
-        # wave_shower.start()
+        wave_shower = Process(target=WarningShower, args=(target_city_plot,warning_plot_TF,needed_wave_input))
+        wave_shower.start()
 
         wave_saver.join()
         multi_station_handler.join()
