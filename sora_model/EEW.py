@@ -507,7 +507,7 @@ def Shower(waveform_plot, waveform_plot_prediction, waveform_plot_picktime, wave
 # multi-station prediction
 # picking: pick and send pick_msg to PICK_RING
 def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, waveform_buffer_start_time, 
-                            env_config, target_city,warning_plot_TF,stationInfo,target_city_plot,needed_wave_input):
+                            env_config, target_city,warning_plot_TF,stationInfo,target_city_plot,needed_wave_input_plot):
     
     
 
@@ -548,7 +548,7 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
     target_coord = pd.read_csv(env_config["MULTISTATION_TARTGET_COORD"])
     target_coord_input = []
     for i in range(len(target_coord)):
-        target_coord_input.append([target_coord.iloc[i]['lon'],target_coord.iloc[i]['lat'],0])
+        target_coord_input.append([target_coord.iloc[i]['lon'],target_coord.iloc[i]['lat'],target_coord.iloc[i]['depth']])
     target_coord_input = np.array(target_coord_input).reshape(-1,15,3)
     
     # make depth table
@@ -607,16 +607,16 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
                 scnl_e = f"{station}_{channel[:-1]}E_{network}_{location}"
 
                 # for tankplayer testing
-                if channel == 'HHZ': 
-                   channel = ['Ch7', 'Ch8', 'Ch9']
-                elif channel == 'EHZ': 
-                   channel = ['Ch4', 'Ch5', 'Ch6']
-                elif channel == 'HLZ': 
-                   channel = ['Ch1', 'Ch2', 'Ch3']
+                # if channel == 'HHZ': 
+                #    channel = ['Ch7', 'Ch8', 'Ch9']
+                # elif channel == 'EHZ': 
+                #    channel = ['Ch4', 'Ch5', 'Ch6']
+                # elif channel == 'HLZ': 
+                #    channel = ['Ch1', 'Ch2', 'Ch3']
                     
-                scnl_z = f"{station}_{channel[0]}_{network}_{location}"
-                scnl_n = f"{station}_{channel[1]}_{network}_{location}"
-                scnl_e = f"{station}_{channel[2]}_{network}_{location}"
+                # scnl_z = f"{station}_{channel[0]}_{network}_{location}"
+                # scnl_n = f"{station}_{channel[1]}_{network}_{location}"
+                # scnl_e = f"{station}_{channel[2]}_{network}_{location}"
                 # for tankplayer testing
                 
 
@@ -644,7 +644,7 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
             #清空前25測站資訊
             if(len(needed_station)>=1):    
                 now_sub = (datetime.utcfromtimestamp(time.time()) -  start_count)
-                if(now_sub.total_seconds()>60):
+                if(now_sub.total_seconds()>30):
                     needed_station = []
                     with open(warning_logfile,"a") as pif:
                         pif.write(f"clear first 25 station:{datetime.utcfromtimestamp(time.time())}")
@@ -652,14 +652,14 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
                         pif.write('\n')
                     #multi_station_msg_notify("第一個測站pick後60s清空測站")
                     for i in range(len(target_coord)):
-                      target_city[i] = [target_coord.iloc[i]['city'],target_coord.iloc[i]['lat'],target_coord.iloc[i]['lon'],[0,0,0,0]]
+                        target_city[i] = [f"{target_coord.iloc[i]['lon']}_{target_coord.iloc[i]['lat']}",target_coord.iloc[i]['lon'],target_coord.iloc[i]['lat'],[0,0,0,0]]
                     needed_coord = np.zeros((1,25, 3))
                     needed_wave_tensor = np.zeros((1,25,3,3000))
             
             # 每小時發一個 notify，證明系統還活著
-            if f"{system_year}-{system_month}-{system_day}-{system_hour}" != f"{cur.year}-{cur.month}-{cur.day}-{cur.hour}":
-                multi_station_msg_notify("system live")
-                system_hour = cur.hour
+            # if f"{system_year}-{system_month}-{system_day}-{system_hour}" != f"{cur.year}-{cur.month}-{cur.day}-{cur.hour}":
+            #     multi_station_msg_notify("system live")
+            #     system_hour = cur.hour
 
 
             # append first 25 station waveform
@@ -684,16 +684,16 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
                 scnl_e = f"{station}_{channel[:-1]}E_{network}_{location}"
                 
                 # for tankplayer testing
-                if channel == 'HHZ': 
-                   channel = ['Ch7', 'Ch8', 'Ch9']
-                elif channel == 'EHZ': 
-                   channel = ['Ch4', 'Ch5', 'Ch6']
-                elif channel == 'HLZ': 
-                   channel = ['Ch1', 'Ch2', 'Ch3']
+                # if channel == 'HHZ': 
+                #    channel = ['Ch7', 'Ch8', 'Ch9']
+                # elif channel == 'EHZ': 
+                #    channel = ['Ch4', 'Ch5', 'Ch6']
+                # elif channel == 'HLZ': 
+                #    channel = ['Ch1', 'Ch2', 'Ch3']
                     
-                scnl_z = f"{station}_{channel[0]}_{network}_{location}"
-                scnl_n = f"{station}_{channel[1]}_{network}_{location}"
-                scnl_e = f"{station}_{channel[2]}_{network}_{location}"
+                # scnl_z = f"{station}_{channel[0]}_{network}_{location}"
+                # scnl_n = f"{station}_{channel[1]}_{network}_{location}"
+                # scnl_e = f"{station}_{channel[2]}_{network}_{location}"
                 # for tankplayer testing
                 
                 # get the index of z,n,e in wavoform
@@ -722,6 +722,7 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
                     station_factor_coords = get_Palert_CWB_coord(np.array(needed_station), stationInfo)
                     # count to gal
                     factor = np.array([f[-1] for f in station_factor_coords]).astype(float)
+                    # print(factor)
                     needed_wave_tensor[:,:len(needed_station)] = needed_wave_tensor[:,:len(needed_station)]/factor[:, None, None]
                 except:
                     station_factor_coords = get_coord_factor(np.array(needed_station), stationInfo)
@@ -739,17 +740,16 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
         
         if(len(needed_coord)>0):
             #波型、座標、目標座標
-            needed_wave_input_noshared = np.transpose(needed_wave_tensor,(0,1,3,2))/100
-            needed_wave_input_noshared = np.repeat(needed_wave_input_noshared,target_coord_input.shape[0], axis=0)
+            needed_wave_tensor_input = np.transpose(needed_wave_tensor,(0,1,3,2))/100
+            needed_wave_tensor_input = np.repeat(needed_wave_tensor_input,target_coord_input.shape[0], axis=0)
             needed_coord_input = np.tile(needed_coord,target_coord_input.shape[0]).reshape(target_coord_input.shape[0],25,3)
             # print(f"needed_coord_input:{needed_coord_input}")
             # print(f"target_coord_input:{target_coord_input}")
             # print(f"{cnt}.png")
             # print(needed_wave_tensor.shape)
-            # plot_wave(needed_wave_input_noshared[0],f"{cnt}.png")
+            # plot_wave(needed_wave_tensor[0],f"{cnt}.png")
             # cnt+=1
-            pga_pred = model.predict([needed_wave_input_noshared,needed_coord_input,target_coord_input],verbose = 0)['pga']
-            needed_wave_input[0] = torch.from_numpy(needed_wave_input_noshared)[0]
+            pga_pred = model.predict([needed_wave_tensor_input,needed_coord_input,target_coord_input],verbose = 0)['pga']
             log_msg += "\n[" + str(time.time()) + "] end predict"
             pga_times_pre = np.zeros((pga_thresholds.shape[0],target_coord_input.shape[0],pga_pred.shape[1]), dtype=int)
             for j,log_level in enumerate(np.log10(pga_thresholds * 9.81)):
@@ -791,35 +791,36 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
                             print(f"Warning time: {datetime.utcfromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S.%f')}:{target_city[city_index][0]},{target_city[city_index][-1]}\n")
                             warning_msg += f"{cnt} Warning time: {datetime.utcfromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S.%f')}:"
                             warning_msg += f"{target_city[city_index][0]},三級:{target_city[city_index][-1][0]},四級:{target_city[city_index][-1][1]},五弱級:{target_city[city_index][-1][2]},五強級:{target_city[city_index][-1][3]}\n"
-                            target_city_plot.append(target_city)
                             warn_Flag = True
                             cnt += 1
         
-        if warn_Flag:
-            multi_station_msg_notify(warning_msg)
-            warning_plot_TF.value += 1
-            # 已經是系統時間的隔天，檢查有沒有過舊的 log file，有的話將其刪除
-            if f"{system_year}-{system_month}-{system_day}" != f"{cur.year}-{cur.month}-{cur.day}" or True:
-                toDelete_picking = cur - timedelta(days=int(env_config['DELETE_PICKINGLOG_DAY']))
-                toDelete_notify = cur - timedelta(days=int(env_config['DELETE_NOTIFYLOG_DAY']))
+            if warn_Flag:
+                multi_station_msg_notify(warning_msg)
+                # 已經是系統時間的隔天，檢查有沒有過舊的 log file，有的話將其刪除
+                if f"{system_year}-{system_month}-{system_day}" != f"{cur.year}-{cur.month}-{cur.day}" or True:
+                    toDelete_picking = cur - timedelta(days=int(env_config['DELETE_PICKINGLOG_DAY']))
+                    toDelete_notify = cur - timedelta(days=int(env_config['DELETE_NOTIFYLOG_DAY']))
 
-                toDelete_picking_filename = f"./warning_log/warning/{toDelete_picking.year}-{toDelete_picking.month}-{toDelete_picking.day}_picking_chunk{env_config['CHUNK']}.log"
-                toDelete_notify_filename = f"./warning_log/notify/{toDelete_notify.year}-{toDelete_notify.month}-{toDelete_notify.day}_picking_chunk{env_config['CHUNK']}.log"
-                if os.path.exists(toDelete_picking_filename):
-                    os.remove(toDelete_picking_filename)
-                if os.path.exists(toDelete_notify_filename):
-                    os.remove(toDelete_notify_filename)
+                    toDelete_picking_filename = f"./warning_log/warning/{toDelete_picking.year}-{toDelete_picking.month}-{toDelete_picking.day}_picking_chunk{env_config['CHUNK']}.log"
+                    toDelete_notify_filename = f"./warning_log/notify/{toDelete_notify.year}-{toDelete_notify.month}-{toDelete_notify.day}_picking_chunk{env_config['CHUNK']}.log"
+                    if os.path.exists(toDelete_picking_filename):
+                        os.remove(toDelete_picking_filename)
+                    if os.path.exists(toDelete_notify_filename):
+                        os.remove(toDelete_notify_filename)
 
-                system_year, system_month, system_day = cur.year, cur.month, cur.day
-            
-            # writing picking log file
-            with open(warning_logfile,"a") as pif:
-                pif.write(warning_msg)
-                pif.write('\n')
-                pif.close()                 
+                    system_year, system_month, system_day = cur.year, cur.month, cur.day
+                
+                # writing picking log file
+                with open(warning_logfile,"a") as pif:
+                    pif.write(warning_msg)
+                    pif.write('\n')
+                    pif.close()      
+                target_city_plot.append(target_city)
+                needed_wave_input_plot.append(needed_wave_tensor)      
+                warning_plot_TF.value += 1    
       
 # plotting
-def WarningShower(target_city_plot,warning_plot_TF,needed_wave_input):
+def WarningShower(target_city_plot,warning_plot_TF,needed_wave_input_plot):
     
     while True:
         isNotify = False
@@ -841,10 +842,8 @@ def WarningShower(target_city_plot,warning_plot_TF,needed_wave_input):
 
         # send the prediction through line notify
         if isNotify:
-
-            plot_taiwan(target_city_plot[0],filename)
-            target_city_plot.pop()
-            plot_wave(needed_wave_input[0],wave_filename)
+            plot_wave(needed_wave_input_plot[-1],wave_filename)
+            plot_taiwan(target_city_plot[-1],filename)
             multi_station_plot_notify(filename) 
             multi_station_plot_notify(wave_filename) 
             warning_plot_TF.value -= 1
@@ -874,14 +873,14 @@ if __name__ == '__main__':
         target_coord = pd.read_csv(env_config["MULTISTATION_TARTGET_COORD"])
         target_city={}
         target_city_plot = manager.list()
+        needed_wave_input_plot = manager.list()
         for i in range(len(target_coord)):
-            target_city[i] = [target_coord.iloc[i]['city'],target_coord.iloc[i]['lon'],target_coord.iloc[i]['lat'],[0,0,0,0]]
-        
+            target_city[i] = [f"{target_coord.iloc[i]['lon']}_{target_coord.iloc[i]['lat']}",target_coord.iloc[i]['lon'],target_coord.iloc[i]['lat'],[0,0,0,0]]
         # a deque from time-3000 to time for time index
         nowtime = Value('d', int(time.time()*100))
         waveform_buffer_start_time = Value('d', nowtime.value-3000)
         needed_wave = []
-        needed_wave_input = torch.zeros((3,25,3000,3),dtype=torch.float32).share_memory_()
+        # needed_wave_input = torch.zeros((3,25,3000,3),dtype=torch.float32).share_memory_()
         
         # a counter for accumulating key's count
         key_cnt = Value('d', int(0))
@@ -931,10 +930,10 @@ if __name__ == '__main__':
                                                                               waveform_buffer_start_time, env_config, target_city,
                                                                               warning_plot_TF,stationInfo,
                                                                               target_city_plot,
-                                                                              needed_wave_input))
+                                                                              needed_wave_input_plot))
         multi_station_handler.start()
         
-        wave_shower = Process(target=WarningShower, args=(target_city_plot,warning_plot_TF,needed_wave_input))
+        wave_shower = Process(target=WarningShower, args=(target_city_plot,warning_plot_TF,needed_wave_input_plot))
         wave_shower.start()
 
         wave_saver.join()

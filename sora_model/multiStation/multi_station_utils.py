@@ -8,6 +8,7 @@ import numpy as np
 def plot_taiwan(target_city,name):
     
     m = StaticMap(1000, 1000)
+
     for index in target_city:
         sta = target_city[index]
         try:
@@ -17,7 +18,7 @@ def plot_taiwan(target_city,name):
         
         if(max_pga_level):
             # print("Draw")
-            # print(target_city[index][0])
+            print(target_city[index][0])
             if(max_pga_level==0):
                 color="#00FFFF"
             elif(max_pga_level==1):
@@ -27,7 +28,7 @@ def plot_taiwan(target_city,name):
             else:
                 color="#E60000"
             
-            marker = CircleMarker([sta[2], sta[1]], color, 10) 
+            marker = CircleMarker([sta[1], sta[2]], color, 10) 
             m.add_marker(marker)
         
     
@@ -56,7 +57,7 @@ def plot_wave(waves,name):
         for j in range(1,6):
             index = (i*j)-1
             # wave = np.sqrt(waves[index,:,0]**2+waves[index,:,1]**2+waves[index,:,2]**2)
-            wave = waves[index,:,0]
+            wave = waves[0,index,0,:]
             ax[i-1,j-1].plot(wave)
     plt.savefig(f'{name}')
     plt.close()
