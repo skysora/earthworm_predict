@@ -94,7 +94,7 @@ def multi_station_plot_notify(name):
         
 # send the picking info to Line notify
 def multi_station_msg_notify(msg):
-    token = "uAUGiQLwsDHPjahFHAPWEmTztOFipJIB4O8bmhaFlLm"
+    token = "EDHcaMNDRH3xyHxpKrBaYtPUGjZjh2xCTyDJmkws0cR"
     
     message = f"Prediction: {msg}\n"
 
