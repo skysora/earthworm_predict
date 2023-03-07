@@ -858,9 +858,7 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
                 with open(warning_logfile,"a") as pif:
                     pif.write(warning_msg)
                     pif.write('\n')
-                    pif.close()      
-                # target_city_plot.append(target_city)
-                # needed_wave_input_plot.append(needed_wave_tensor)      
+                    pif.close()           
                 warning_plot_TF.value += 1    
       
 # plotting
@@ -888,8 +886,8 @@ def WarningShower(target_city_plot,warning_plot_TF,needed_wave_input_plot):
         if isNotify:
             plot_wave(needed_wave_input_plot[-1],wave_filename)
             plot_taiwan(target_city_plot[-1],filename)
-            # multi_station_plot_notify(filename) 
-            # multi_station_plot_notify(wave_filename) 
+            multi_station_plot_notify(filename) 
+            multi_station_plot_notify(wave_filename) 
             warning_plot_TF.value -= 1
   
 
