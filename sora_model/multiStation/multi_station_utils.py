@@ -5,20 +5,58 @@ import requests
 import matplotlib.pyplot as plt      # v 3.3.2
 import numpy as np
 
+def location_transformation(metadata, target=None):
+    transform_target_only = False
+    scale_metadata = True
+    pos_offset = [0,12]
+    D2KM = D2KM = 111.19492664455874
+    metadata = metadata.copy()
+
+    metadata_old = metadata
+    metadata = metadata.copy()
+    mask = (metadata == 0).all(axis=2)
+    if target is not None:
+        target[:, 0] -= pos_offset[0]
+        target[:, 1] -= pos_offset[1]
+    metadata[:, :, 0] -= pos_offset[0]
+    metadata[:, :, 1] -= pos_offset[1]
+
+    # Coordinates to kilometers (assuming a flat earth, which is okay close to equator)
+    if scale_metadata:
+        metadata[:, :, :2] *= D2KM
+    if target is not None:
+        target[:, :2] *= D2KM
+
+    metadata[mask] = 0
+
+    if scale_metadata:
+        metadata /= 100
+    if target is not None:
+        target /= 100
+
+    if transform_target_only:
+        metadata = metadata_old
+
+    if target is None:
+        return metadata
+    else:
+        return metadata, target
+
+
 def plot_taiwan(target_city,name):
     
     m = StaticMap(1000, 1000)
 
     for index in target_city:
+    
         sta = target_city[index]
         try:
             max_pga_level = [index for (index, item) in enumerate(sta[-1]) if item == 1][-1]
         except:
-            max_pga_level=False
-        
-        if(max_pga_level):
+            max_pga_level=999
+            
+        if(max_pga_level!=999):
             # print("Draw")
-            print(target_city[index][0])
             if(max_pga_level==0):
                 color="#00FFFF"
             elif(max_pga_level==1):

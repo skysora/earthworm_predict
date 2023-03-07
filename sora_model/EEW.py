@@ -19,7 +19,8 @@ import bisect
 from scipy.stats import norm
 sys.path.append('../')
 from tqdm import tqdm
-
+from ctypes import c_char_p
+import glob
 from dotenv import dotenv_values
 #from model_resnet import ResNet18
 from datetime import datetime, timedelta
@@ -504,10 +505,46 @@ def Shower(waveform_plot, waveform_plot_prediction, waveform_plot_picktime, wave
         if isNotify:
             plot_notify(filename)
 
+
+# Upload to google drive
+def Uploader(logfilename_warning, logfilename_notify, upload_TF):
+    from pydrive.auth import GoogleAuth
+    from pydrive.drive import GoogleDrive
+
+    gauth = GoogleAuth()
+    gauth.LoadCredentialsFile("credentials.json")
+    drive = GoogleDrive(gauth)
+
+    while True:
+        if upload_TF.value == 0.0:
+            continue
+        try:
+            # upload picking log file
+            file1 = drive.CreateFile({"title":logfilename_warning.value,"parents": [{"kind": "drive#fileLink", "id": "1YEmiqfq0LUnFAXRjpWpbwdtu0H6misgq"}]})
+            file1.SetContentFile(logfilename_warning.value)
+            file1.Upload() #檔案上傳
+            print("logfilename_warning log file -> uploading succeeded!")
+
+
+            # upload tensor files
+            for file in logfilename_notify.value:
+                filename = file.split("/")[-1]
+                file1 = drive.CreateFile({"title":filename,"parents": [{"kind": "drive#fileLink", "id": "1YEmiqfq0LUnFAXRjpWpbwdtu0H6misgq"}]})
+                file1.SetContentFile(file)
+                file1.Upload() #檔案上傳
+                os.remove(file)
+
+            print("log file -> waveform png succeeded!")
+            upload_TF.value *= 0.0
+        except Exception as e:
+            
+            print(f'Upload failed:{Exception}')
+            upload_TF.value *= 0.0
 # multi-station prediction
 # picking: pick and send pick_msg to PICK_RING
 def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, waveform_buffer_start_time, 
-                            env_config, target_city,warning_plot_TF,stationInfo,target_city_plot,needed_wave_input_plot):
+                            env_config, target_city,warning_plot_TF,stationInfo,target_city_plot,needed_wave_input_plot,
+                            logfilename_warning,logfilename_notify,upload_TF):
     
     
 
@@ -634,7 +671,7 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
             if (len(needed_station)==1):
                 # get the filenames
                 cur = datetime.fromtimestamp(time.time())
-                warning_logfile = f"./warning_log/warning/{cur.year}-{cur.month}-{cur.day}_warning_chunk{env_config['CHUNK']}.log"
+                warning_logfile = f"./warning_log/warning/{cur.year}-{cur.month}-{cur.day}_warning.log"
                 start_count = datetime.utcfromtimestamp(time.time())
                 with open(warning_logfile,"a") as pif:
                     pif.write(f"First Station Picking time: {start_count.strftime('%Y-%m-%d %H:%M:%S.%f')}")
@@ -743,6 +780,9 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
             needed_wave_tensor_input = np.transpose(needed_wave_tensor,(0,1,3,2))/100
             needed_wave_tensor_input = np.repeat(needed_wave_tensor_input,target_coord_input.shape[0], axis=0)
             needed_coord_input = np.tile(needed_coord,target_coord_input.shape[0]).reshape(target_coord_input.shape[0],25,3)
+            needed_coord_input = location_transformation(needed_coord_input)
+            target_coord_input = location_transformation(target_coord_input)
+            
             # print(f"needed_coord_input:{needed_coord_input}")
             # print(f"target_coord_input:{target_coord_input}")
             # print(f"{cnt}.png")
@@ -791,32 +831,36 @@ def PickHandlerMultiStation(needed_wave,waveform_buffer, key_index, nowtime, wav
                             print(f"Warning time: {datetime.utcfromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S.%f')}:{target_city[city_index][0]},{target_city[city_index][-1]}\n")
                             warning_msg += f"{cnt} Warning time: {datetime.utcfromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S.%f')}:"
                             warning_msg += f"{target_city[city_index][0]},三級:{target_city[city_index][-1][0]},四級:{target_city[city_index][-1][1]},五弱級:{target_city[city_index][-1][2]},五強級:{target_city[city_index][-1][3]}\n"
+                            target_city_plot.append(target_city)
+                            needed_wave_input_plot.append(needed_wave_tensor)
                             warn_Flag = True
                             cnt += 1
         
             if warn_Flag:
-                multi_station_msg_notify(warning_msg)
+                
+                # multi_station_msg_notify(warning_msg)
                 # 已經是系統時間的隔天，檢查有沒有過舊的 log file，有的話將其刪除
                 if f"{system_year}-{system_month}-{system_day}" != f"{cur.year}-{cur.month}-{cur.day}" or True:
                     toDelete_picking = cur - timedelta(days=int(env_config['DELETE_PICKINGLOG_DAY']))
-                    toDelete_notify = cur - timedelta(days=int(env_config['DELETE_NOTIFYLOG_DAY']))
 
-                    toDelete_picking_filename = f"./warning_log/warning/{toDelete_picking.year}-{toDelete_picking.month}-{toDelete_picking.day}_picking_chunk{env_config['CHUNK']}.log"
-                    toDelete_notify_filename = f"./warning_log/notify/{toDelete_notify.year}-{toDelete_notify.month}-{toDelete_notify.day}_picking_chunk{env_config['CHUNK']}.log"
+                    toDelete_picking_filename = f"./warning_log/warning/{toDelete_picking.year}-{toDelete_picking.month}-{toDelete_picking.day}_warning.log"
                     if os.path.exists(toDelete_picking_filename):
                         os.remove(toDelete_picking_filename)
-                    if os.path.exists(toDelete_notify_filename):
-                        os.remove(toDelete_notify_filename)
-
+                        
+                    logfilename_warning.value = f"./warning_log/warning/{system_year}-{system_month}-{system_day}_warning.log"
+                    logfilename_notify.value = glob.glob("./warning_log/notify/*")
+                    upload_TF.value += 1
+                    
+                    #reset system time
                     system_year, system_month, system_day = cur.year, cur.month, cur.day
-                
+                    
                 # writing picking log file
                 with open(warning_logfile,"a") as pif:
                     pif.write(warning_msg)
                     pif.write('\n')
                     pif.close()      
-                target_city_plot.append(target_city)
-                needed_wave_input_plot.append(needed_wave_tensor)      
+                # target_city_plot.append(target_city)
+                # needed_wave_input_plot.append(needed_wave_tensor)      
                 warning_plot_TF.value += 1    
       
 # plotting
@@ -844,8 +888,8 @@ def WarningShower(target_city_plot,warning_plot_TF,needed_wave_input_plot):
         if isNotify:
             plot_wave(needed_wave_input_plot[-1],wave_filename)
             plot_taiwan(target_city_plot[-1],filename)
-            multi_station_plot_notify(filename) 
-            multi_station_plot_notify(wave_filename) 
+            # multi_station_plot_notify(filename) 
+            # multi_station_plot_notify(wave_filename) 
             warning_plot_TF.value -= 1
   
 
@@ -884,10 +928,15 @@ if __name__ == '__main__':
         
         # a counter for accumulating key's count
         key_cnt = Value('d', int(0))
-
         # a dict for checking scnl's index of waveform
         key_index = manager.dict()
 
+        # parameter for uploader
+        logfilename_warning = manager.Value(c_char_p, 'hello')
+        logfilename_notify = manager.Value(c_char_p, 'hello')
+        upload_TF = Value('d', int(0))
+        
+        
         # to save all raw wave form data, which is the numpy array, and the shape is (station numbur*channel, 3000)
         # tmp = Array('i', int(env_config["STORE_LENGTH"])*int(env_config["TOTAL_STATION"]))
         # waveform_buffer = np.frombuffer(tmp.get_obj(), c.c_float)
@@ -930,19 +979,23 @@ if __name__ == '__main__':
                                                                               waveform_buffer_start_time, env_config, target_city,
                                                                               warning_plot_TF,stationInfo,
                                                                               target_city_plot,
-                                                                              needed_wave_input_plot))
+                                                                              needed_wave_input_plot,
+                                                                              logfilename_warning,
+                                                                              logfilename_notify,upload_TF))
         multi_station_handler.start()
         
         wave_shower = Process(target=WarningShower, args=(target_city_plot,warning_plot_TF,needed_wave_input_plot))
         wave_shower.start()
 
+        
+        uploader = Process(target=Uploader, args=(logfilename_warning, logfilename_notify, upload_TF))
+        uploader.start()
+        
+        
         wave_saver.join()
         multi_station_handler.join()
-        
-        
-        # picker.join()
-        # wave_shower.join()
-        # pick_handler.join()
+        wave_shower.join()
+        uploader.join()
 
     except KeyboardInterrupt:
         wave_saver.terminate()
