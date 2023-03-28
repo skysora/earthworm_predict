@@ -67,17 +67,19 @@
     "training_params": {
         "batch_size":64,
         "device": 0,
-        "lr": 1e-05,
+        "lr": 1e-06,
         "clipnorm": 1.0,
         "epochs_single_station": 25,
-        "epochs_full_model": 50,
+        "epochs_full_model": 10,
         "filter_single_station_by_pick": true,
+        "transfer_model_path": "/home/sora/M11015203/docker-home/earthquake_pytorch/TEAM-pytorch_method_5_WGSS_/weights_transformer_taiwan_rotation_transfer_ensemble",
         "data_path": [
-            "/mnt/nas2/Italy/italy.hdf5"
+            "/home/sora/M11015203/docker-home/earthquake/data/italy.hdf5"
         ],
-        "workers": 10,
-        "single_station_model_path": "/home/sora/M11015203/docker-home/earthquake/TEAM_v2_taiwan/single-station-25.hdf5",
-        "weight_path": "weights_transformer_taiwan_plain_ensemble",
+        "workers": 150,
+        "weight_path": "weights_transformer_taiwan_rotation_transfer_ensemble_form_WGSS_",
+        "ensemble_load": true,
+        "wait_for_load": true,
         "loss_weights": {
             "pga": 1
         },
@@ -85,7 +87,7 @@
         "generator_params": [
             {
                 "key": "M_J",
-                "batch_size": 8,
+                "batch_size": 16,
                 "min_upsample_magnitude": 4,
                 "magnitude_resampling": 1.5,
                 "translate": false,

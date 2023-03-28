@@ -1,2 +1,3 @@
-sora_model/model.pt
-sora_model/multiStation/event-33.hdf5
+
+multi_station_warning/checkpoint_7.pth
+img/*
