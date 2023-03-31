@@ -532,6 +532,28 @@ def MultiStationWarning(waveform_buffer, key_index,env_config, key_cnt,
                 continue
             wait_list.append(pick_str)
 
+    
+        # # 每小時發一個 notify，證明系統還活著
+        # # if f"{system_year}-{system_month}-{system_day}-{system_hour}" != f"{cur.year}-{cur.month}-{cur.day}-{cur.hour}":
+        # #     multi_station_msg_notify("system live")
+        # #     system_hour = cur.hour
+        
+        First_Station_Flag = False
+        # #紀錄地震開始第一個測站Picking時間
+        if(len(wait_list)==1 and not First_Station_Flag):
+            First_Station_Flag = True
+            # get the filenames
+            create_file_cur = datetime.fromtimestamp(time.time())
+            warning_logfile = f"./warning_log/log/{create_file_cur.year}-{create_file_cur.month}-{create_file_cur.day}-{create_file_cur.hour}:{create_file_cur.minute}_warning.log"
+            start_count = datetime.utcfromtimestamp(time.time())
+            with open(warning_logfile,"a") as pif:
+                pif.write(f"First Station Picking time: {start_count.strftime('%Y-%m-%d %H:%M:%S.%f')}")
+                pif.write('='*25)
+                pif.write('\n')
+         
+        if(len(wait_list)==1  and  First_Station_Flag):
+            print(datetime.fromtimestamp(time.time()) - start_count)
+        # if (First_Station_Flag and )
         #append data
         station_index = 0
         waveforms = np.zeros((1, len(stations_table),3,3000))
@@ -621,24 +643,7 @@ def MultiStationWarning(waveform_buffer, key_index,env_config, key_cnt,
             metadata[0,position] = np.array([station_coord_factor[1],station_coord_factor[0],depth])
             
             station_index+=1
-            
-        # #紀錄地震開始第一個測站Picking時間
-        # if (len(toPredict_scnl)==1):
-        #     # get the filenames
-        #     cur = datetime.fromtimestamp(time.time())
-        #     warning_logfile = f"./warning_log/warning/{cur.year}-{cur.month}-{cur.day}_warning.log"
-        #     start_count = datetime.utcfromtimestamp(time.time())
-        #     with open(warning_logfile,"a") as pif:
-        #         pif.write(f"First Station Picking time: {start_count.strftime('%Y-%m-%d %H:%M:%S.%f')}")
-        #         pif.write('='*25)
-        #         pif.write('\n')
-            
-        
-        # # 每小時發一個 notify，證明系統還活著
-        # # if f"{system_year}-{system_month}-{system_day}-{system_hour}" != f"{cur.year}-{cur.month}-{cur.day}-{cur.hour}":
-        # #     multi_station_msg_notify("system live")
-        # #     system_hour = cur.hour
-        
+                    
         #(1,250,3000,3)
         input_waveforms = np.transpose(waveforms,(0,1,3,2))    
         input_metadata = location_transformation(metadata)
@@ -695,29 +700,16 @@ def MultiStationWarning(waveform_buffer, key_index,env_config, key_cnt,
                         cnt += 1
     
         if warn_Flag:
-            warning_logfile = f"./warning_log/log/{cur.year}-{cur.month}-{cur.day}_warning.log"
             # multi_station_msg_notify(warning_msg)
-            # 已經是系統時間的隔天，檢查有沒有過舊的 log file，有的話將其刪除
-            if f"{system_year}-{system_month}-{system_day}" != f"{cur.year}-{cur.month}-{cur.day}" or True:
-                toDelete_picking = cur - timedelta(days=int(env_config['DELETE_PICKINGLOG_DAY']))
-
-                toDelete_picking_filename = f"./warning_log/log/{toDelete_picking.year}-{toDelete_picking.month}-{toDelete_picking.day}_warning.log"
-                if os.path.exists(toDelete_picking_filename):
-                    os.remove(toDelete_picking_filename)
-                    
-                logfilename_warning.value = f"./warning_log/log/{system_year}-{system_month}-{system_day}_warning.log"
-                logfilename_notify.value = glob.glob("./warning_log/notify/*")
-                upload_TF.value += 1
-                
-                #reset system time
-                system_year, system_month, system_day = cur.year, cur.month, cur.day
-                
+            logfilename_warning.value = f"./warning_log/log/{system_year}-{system_month}-{system_day}_warning.log"
+            logfilename_notify.value = glob.glob("./warning_log/notify/*")
+            upload_TF.value += 1
+            warning_plot_TF.value += 1
             # writing picking log file
             with open(warning_logfile,"a") as pif:
                 pif.write(warning_msg)
                 pif.write('\n')
                 pif.close()           
-            warning_plot_TF.value += 1    
 
 
 # multi-station prediction
@@ -1109,15 +1101,18 @@ if __name__ == '__main__':
         
         # create update table
         stations_table = json.load(open(env_config["Multi_Station_Table_FILEPATH"], 'r'))
+        stations_table_chinese = json.load(open(env_config["Multi_Station_Table_Chinese_FILEPATH"], 'r'))
         target_city={}
         target_city_plot = manager.list()
         needed_wave_input_plot = manager.list()
         count = 0
+        print("Create Table")
         for key in stations_table.keys():
             target_coord = key.split(',')
-            target_city[count] = [f"{target_coord[0]}_{target_coord[1]}",target_coord[0],target_coord[1],[0,0,0,0,0]]
+            key = "%.4f,%.4f" % (float(target_coord[0]), float(target_coord[1]))
+            target_city[count] = [stations_table_chinese[key],target_coord[0],target_coord[1],[0,0,0,0,0]]
             count += 1 
-        
+        print("Finish Create Table")
         # to save all raw wave form data, which is the numpy array, and the shape is (station numbur*channel, 3000)
         waveform_buffer = torch.empty((int(env_config["N_PREDICTION_STATION"])*3, int(env_config["STORE_LENGTH"]))).share_memory_()
 
