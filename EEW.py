@@ -159,6 +159,7 @@ def WaveSaver(env_config, waveform_buffer, key_index, nowtime, waveform_buffer_s
     # if env_config['SOURCE'] == 'CWB' or env_config['SOURCE'] == 'Palert' or env_config['SOURCE'] == 'TSMIP':
     #     partial_station_list = station_selection(int(env_config["CHUNK"]), stationInfo, env_config['SOURCE'], int(env_config["N_PREDICTION_STATION"]))
     # print(partial_station_list)
+    # cnt = 0
     while True:
         # get raw waveform from WAVE_RING
         wave = MyModule.get_wave(0) 
@@ -184,8 +185,7 @@ def WaveSaver(env_config, waveform_buffer, key_index, nowtime, waveform_buffer_s
             # save it into a dict which saves the pair of scnl and waveform's index
             key_index[scnl] = int(key_cnt.value)
             # initialize the scnl's waveform with shape of (1,6000) and fill it with 0
-            # waveform_buffer[int(key_cnt.value)] = np.zeros((1, 6000))
-            waveform_buffer[int(key_cnt.value)] = torch.zeros((1, 6000))
+            waveform_buffer[int(key_cnt.value)] = torch.zeros((1, 12000))
             # waveform_buffer = np.append(waveform_buffer, np.zeros((1,6000)), axis = 0)
             key_cnt.value += 1
 
@@ -209,11 +209,18 @@ def WaveSaver(env_config, waveform_buffer, key_index, nowtime, waveform_buffer_s
         # move the time window of timeIndex and waveform every 5 seconds
         if int(time.time()*100) - nowtime.value >= 500:
             waveform_buffer_start_time.value += 500
-            waveform_buffer[:, 0:5500] = waveform_buffer[:, 500:6000]
+            waveform_buffer[:, 0:11500] = waveform_buffer[:, 500:12000]
             
             # the updated waveform is fill in with 0
-            waveform_buffer[:, 5500:6000] = torch.zeros((waveform_buffer.shape[0],500))
-            nowtime.value += 500        
+            waveform_buffer[:, 11500:12000] = torch.zeros((waveform_buffer.shape[0],500))
+            nowtime.value += 500     
+            
+            # print(waveform_buffer.shape)
+            # plt.plot(waveform_buffer[0,:])
+            # plt.savefig(f'./img/{cnt}.png')
+            # plt.clf()
+            # plt.close() 
+            # cnt+=1
 
 # picking: pick and send pick_msg to PICK_RING
 def MultiStationWarning_NO_Picker(waveform_buffer, key_index,env_config, key_cnt, 
@@ -456,7 +463,7 @@ def MultiStationWarning_NO_Picker(waveform_buffer, key_index,env_config, key_cnt
 def MultiStationWarning(waveform_buffer, key_index,env_config, key_cnt, 
                         stationInfo, device,target_city,target_city_plot,
                         logfilename_warning,logfilename_notify,upload_TF,
-                        warning_plot_TF,first_station_time,target_waveform_plot,log_name):
+                        warning_plot_TF,target_waveform_plot,log_name):
     
     
 
@@ -530,14 +537,7 @@ def MultiStationWarning(waveform_buffer, key_index,env_config, key_cnt,
             if int(pick_str[-1]) !=3:
                 continue
             wait_list.append(pick_str)
-
     
-        # # 每小時發一個 notify，證明系統還活著
-        # # if f"{system_year}-{system_month}-{system_day}-{system_hour}" != f"{cur.year}-{cur.month}-{cur.day}-{cur.hour}":
-        # #     multi_station_msg_notify("system live")
-        # #     system_hour = cur.hour
-        
-        
         # #紀錄地震開始第一個測站Picking時間
         if(not First_Station_Flag):
             First_Station_Flag = True
@@ -547,8 +547,9 @@ def MultiStationWarning(waveform_buffer, key_index,env_config, key_cnt,
             start_count = datetime.fromtimestamp(time.time())
             
             with open(warning_logfile,"a") as pif:
-                pif.write(f"Description,Picking_Time,Warning_Time,Station_Id,County,Township,Station_Chinese_Name,8gal,25gal,81gal,140gal,250gal")
+                pif.write(f"Description,Picking_Time,Warning_Time,Station_Id,County,Township,Station_Chinese_Name,8gal,25gal,81gal,140gal,250gal,Label_0.8gal,Label_2.5gal,Label_8gal,Label_25gal,Label_81gal,Label_140gal,Label_250gal")
                 pif.write('\n')
+
 
             # create update table
             stations_table = json.load(open(env_config["Multi_Station_Table_FILEPATH"], 'r'))
@@ -563,7 +564,7 @@ def MultiStationWarning(waveform_buffer, key_index,env_config, key_cnt,
             print("Finish Create Table")
          
         if(First_Station_Flag):
-            if((datetime.fromtimestamp(time.time()) - start_count).seconds >= 30):
+            if((datetime.fromtimestamp(time.time()) - start_count).seconds >= 60):
                 print(f"reset")
                 First_Station_Flag = False
                 log_name.value = warning_logfile
@@ -579,10 +580,8 @@ def MultiStationWarning(waveform_buffer, key_index,env_config, key_cnt,
         for pick_info in wait_list:
 
             pick_info = pick_info.split(' ')
-            # print(f"pick_info:{datetime.fromtimestamp(float(pick_info[10]))}")
             pick_index = int((float(time.time())-float(pick_info[10]))*100)
             if(station_index==0):
-                first_station_time.value = pick_info[10]
                 first_station_index = pick_index
                 
             # print(f"pick_index:{pick_index}")
@@ -630,11 +629,11 @@ def MultiStationWarning(waveform_buffer, key_index,env_config, key_cnt,
               
             time_before = 5
             # get waveform of z,n,e starting from ptime
-            start_index = max(3000-first_station_index-time_before,0)
+            start_index = max(6000-first_station_index-time_before,3000)
             
-            hlz = waveform_buffer[key_index[scnl_z]][start_index:3000]*0.01
-            hln = waveform_buffer[key_index[scnl_n]][start_index:3000]*0.01
-            hle = waveform_buffer[key_index[scnl_e]][start_index:3000]*0.01
+            hlz = waveform_buffer[key_index[scnl_z]][start_index:start_index+3000]*0.01
+            hln = waveform_buffer[key_index[scnl_n]][start_index:start_index+3000]*0.01
+            hle = waveform_buffer[key_index[scnl_e]][start_index:start_index+3000]*0.01
         
             inp = torch.cat((hlz.unsqueeze(0), hln.unsqueeze(0), hle.unsqueeze(0)), dim=0)  # missing factor
             
@@ -1044,7 +1043,7 @@ def PickHandlerMultiStation_TEAMS(needed_wave,waveform_buffer, key_index, nowtim
                 warning_plot_TF.value += 1    
       
 # plotting
-def WarningShower(env_config,stationInfo,waveform_buffer,key_index,target_city_plot,warning_plot_TF,first_station_time,target_waveform_plot,log_name):
+def WarningShower(env_config,stationInfo,waveform_buffer,key_index,target_city_plot,warning_plot_TF,target_waveform_plot,log_name):
     
     stations_table = json.load(open(env_config["Multi_Station_Table_FILEPATH"], 'r'))
     stations_table_chinese = json.load(open(env_config["Multi_Station_Table_Chinese_FILEPATH"], 'r'))
@@ -1067,11 +1066,10 @@ def WarningShower(env_config,stationInfo,waveform_buffer,key_index,target_city_p
             os.makedirs(plot_filename_folder)
         
         df = pd.read_csv(log_name.value)
-        pga_threshold = [0.81,2.5,8.1,14,25]
-        color = ['#0000FF','#90EE90','#FFFF00','#FF0000','#FFA500'] 
-        waveforms = np.zeros((1, len(stations_table),3,3000))
-        first_station_index = int((float(time.time())-float(first_station_time.value))*100)
-        count = 0
+        pga_threshold = [0.081,0.25,0.81,2.5,8.1,14,25]
+        color = ['#6A0DAD','#FFC0CB','#0000FF','#90EE90','#FFFF00','#FF0000','#FFA500'] 
+        waveforms = np.zeros((1, len(stations_table),3,7000))
+        station_index = 0
         for pick_info in target_waveform_plot[-1]:
             pick_info = pick_info.split(' ')
             station = pick_info[0]
@@ -1080,15 +1078,17 @@ def WarningShower(env_config,stationInfo,waveform_buffer,key_index,target_city_p
             location = pick_info[3]
             scnl = f"{station}_{channel}_{network}_{location}"
             row = df[df['Station_Id']==str(station)]
-            
+            if(station_index==0):
+                first_station_time = pick_info[10]
+                first_station_index = int((float(time.time())-float(pick_info[10]))*100)
+            station_index += 1
             if row.empty:
                 print(f"{str(station)} is empty")
                 continue
             
-            # print(f"first:{first_station_time.value}")
-            # print(f"pick_info:{pick_info[10]}")
-            pick_index  = int((float(pick_info[10])-float(first_station_time.value))*100)
-            warning_index = int((float(datetime.timestamp(datetime.strptime(f'{list(row["Warning_Time"])[0]}',"%Y-%m-%d %H:%M:%S.%f")))-float(first_station_time.value))*100)
+            pred = [list(row["8gal"])[0],list(row["25gal"])[0],list(row["81gal"])[0],list(row["140gal"])[0],list(row["250gal"])[0]]
+            pick_index  = int((float(pick_info[10])-float(first_station_time))*100)
+            warning_index = pick_index+int((float(datetime.timestamp(datetime.strptime(f'{list(row["Warning_Time"])[0]}',"%Y-%m-%d %H:%M:%S.%f")))-float(pick_info[10]))*100)
             station_coord_factor = get_coord_factor(np.array([scnl]), stationInfo)[0]
             factor = torch.Tensor(station_coord_factor[-1])
             
@@ -1109,25 +1109,24 @@ def WarningShower(env_config,stationInfo,waveform_buffer,key_index,target_city_p
                 scnl_n = f"{station}_{channel[1]}_{network}_{location}"
                 scnl_e = f"{station}_{channel[2]}_{network}_{location}"
               
-            time_before = 0
-            start_index = 0
-            
-            hlz = waveform_buffer[key_index[scnl_z]][start_index:3000]*0.01
-            hln = waveform_buffer[key_index[scnl_n]][start_index:3000]*0.01
-            hle = waveform_buffer[key_index[scnl_e]][start_index:3000]*0.01
+            time_before = 5
+            pick_index -=  time_before
+            warning_index -=  time_before
+            start_index = max(6000-first_station_index-time_before,0)
+            hlz = waveform_buffer[key_index[scnl_z]][start_index:start_index+6000]*0.01
+            hln = waveform_buffer[key_index[scnl_n]][start_index:start_index+6000]*0.01
+            hle = waveform_buffer[key_index[scnl_e]][start_index:start_index+6000]*0.01
         
             inp = torch.cat((hlz.unsqueeze(0), hln.unsqueeze(0), hle.unsqueeze(0)), dim=0)  # missing factor
             
-            
             inp = inp*factor[:,None]
             inp = inp - torch.mean(inp, dim=-1, keepdims=True)
-            
             
             depth = dataDepth[f"{station_coord_factor[1]},{station_coord_factor[0]}"]
             station_key = f"{station_coord_factor[1]},{station_coord_factor[0]},{depth}"
             position = stations_table[station_key]
             
-             #waveforms (1,250,3,3000)
+            
             waveforms[0,position,:,0:inp.shape[1]] = inp
             
             hor_acc,_,_,_ = calc_pga(waveforms[0,position,0,:], waveforms[0,position,1,:], waveforms[0,position,2,:], '', 100)
@@ -1135,28 +1134,40 @@ def WarningShower(env_config,stationInfo,waveform_buffer,key_index,target_city_p
             key = "%.4f,%.4f" % (float(station_coord_factor[1]), float(station_coord_factor[0]))
             file_name = stations_table_chinese[key]
             plt.figure(figsize=(20, 10))
-            plt.subplot(411)
-            plt.title(f"first_station_index:{first_station_index},pick_index:{pick_index},warning_index:{warning_index}")
+            plt.subplot(511)
+            plt.title(f"pick_index:{pick_index},warning_index:{warning_index}")
             plt.plot(waveforms[0,position,0,:])
-            plt.subplot(412)
+            plt.subplot(512)
             plt.plot(waveforms[0,position,1,:])
-            plt.subplot(413)
+            plt.subplot(513)
             plt.plot(waveforms[0,position,2,:])
-            plt.subplot(414)
+            plt.subplot(514)
+            #label
             plt.plot(hor_acc)
+            plt.title("Label")
+            log_title = ["Label_0.8gal","Label_2.5gal","Label_8gal","Label_25gal","Label_81gal","Label_140gal","Label_250gal"]
             for level in range(len(pga_threshold)):
                 pga_time = np.argmax(hor_acc > pga_threshold[level]*0.01*9.81)
                 if (pga_time==0):
                     continue
+                label_time = datetime.fromtimestamp(float(first_station_time)) + timedelta(seconds=int(pga_time/100))
+                df.loc[df[df['Station_Id'] == str(station)].index, [log_title[level]]] = label_time
                 plt.axvline(pga_time,c=color[level],label=f"{pga_threshold[level]}*0.01*9.81")
+            plt.legend()
+            #pred
+            plt.subplot(515)
+            plt.title(f"Pred")
+            plt.plot(hor_acc)
+            pred_level = [index for (index, item) in enumerate(pred) if item == 1][-1]
+            plt.axvline(warning_index,c=color[pred_level+2],label=f"{pga_threshold[pred_level+2]}*0.01*9.81")
                 
             plt.axvline(pick_index,c="g",label=f"pick")   
-            plt.axvline(warning_index,c="r",label=f"pred")
             plt.legend()
             plt.savefig(f'{plot_filename_folder}/{file_name}.png')
             plt.clf()
             plt.close() 
-            count+=1
+            
+        df.to_csv(f'{log_name.value}')
         warning_plot_TF.value -= 1
 
   
@@ -1183,7 +1194,7 @@ if __name__ == '__main__':
             
         # a deque from time-3000 to time for time index
         nowtime = Value('d', int(time.time()*100))
-        waveform_buffer_start_time = Value('d', nowtime.value-3000)
+        waveform_buffer_start_time = Value('d', nowtime.value-6000)
         needed_wave = []
         # needed_wave_input = torch.zeros((3,25,3000,3),dtype=torch.float32).share_memory_()
         
@@ -1195,7 +1206,6 @@ if __name__ == '__main__':
         # parameter for uploader
         logfilename_warning = manager.Value(c_char_p, 'hello')
         logfilename_notify = manager.Value(c_char_p, 'hello')
-        first_station_time = manager.Value(c_char_p, 'hello')
         log_name = manager.Value(c_char_p, 'hello')
         upload_TF = Value('d', int(0))
         
@@ -1245,13 +1255,13 @@ if __name__ == '__main__':
         waining = Process(target=MultiStationWarning, args=(waveform_buffer, key_index,env_config, key_cnt, 
                                                             stationInfo, device,target_city,target_city_plot,
                                                             logfilename_warning,logfilename_notify,upload_TF,
-                                                            warning_plot_TF,first_station_time,target_waveform_plot,log_name))
+                                                            warning_plot_TF,target_waveform_plot,log_name))
         waining.start()
 
 
         wave_shower = Process(target=WarningShower, args=(env_config,stationInfo,waveform_buffer,key_index
                                                           ,target_city_plot,warning_plot_TF,
-                                                          first_station_time,target_waveform_plot,log_name))
+                                                          target_waveform_plot,log_name))
         wave_shower.start()
 
         
