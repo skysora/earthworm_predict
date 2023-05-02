@@ -15,11 +15,10 @@ def get_StationInfo(nsta_path, starttime):
     with open(nsta_path) as f:
         for line in f.readlines():
             l = line.strip().split()
-            
             # check the station is expired
             if st_time >= int(l[-2]) and st_time <= int(l[-1]):
                 key = f"{l[0]}_{l[8]}_{l[7]}_0{l[5]}"
-                d[key] = [float(l[1]), float(l[2]), [float(l[9]), float(l[10]), float(l[11])], l[-2], l[-1]]
+                d[key] = [float(l[1]), float(l[2]),float(l[3]), [float(l[9]), float(l[10]), float(l[11])], l[-2], l[-1]]
 
     return d
 
@@ -40,10 +39,9 @@ def get_coord_factor(key, stationInfo):
         
         try:
             info = stationInfo[cur_k]
-            
             output.append(info[:-2])
         except:
-            output.append([-1, -1, [1, 1, 1]])
+            output.append([-1, -1,-1, [1, 1, 1]])
         
     return output
 

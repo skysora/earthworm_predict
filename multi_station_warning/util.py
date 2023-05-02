@@ -144,3 +144,143 @@ def multi_station_msg_notify(msg):
             print(f"Success waveform prediction -> {response.text}")
     except Exception as e:
         print(e)
+        
+        
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+import requests
+import time
+
+def mapping_gal_to_intensity(gal):
+    if gal == '8gal':
+        return '3級'
+    if gal == '25gal':
+        return '4級'
+    if gal == '81gal':
+        return '5弱級'
+    if gal == '140gal':
+        return '5強級'
+    if gal == '250gal':
+        return '6弱級'
+    
+def gen_info(df):
+    # output info
+    result = {}
+
+    true_intensity_level = ['1', '2', '3', '4', '5弱', '5強', '6弱']
+    true_intensity_key = ['Label_0.8gal', 'Label_2.5gal', 'Label_8gal', 'Label_25gal', 'Label_81gal', 'Label_140gal', 'Label_250gal']
+    pred_intensity_level = ['3', '4', '5弱', '5強', '6弱']
+    pred_intensity_key = ['8gal', '25gal', '81gal', '140gal', '250gal']
+    
+    for data in df.iterrows():
+        tmp_station = data[1]['County'] + ' ' + data[1]['Township'] + ' ' + data[1]['Station_Chinese_Name']
+        
+        if tmp_station not in result.keys():
+            result[tmp_station] = {}
+
+        gt = np.array([data[1][k] for k in true_intensity_key])
+        pred = np.array([data[1][k] for k in pred_intensity_key])
+        
+        mask_gt = np.logical_or(gt == '0', gt == '0.0')
+        mask_pred = pred == 1
+
+        # 檢查真實情況有沒有超過 1 級
+        if np.any(mask_gt):
+            gt_intensity = mask_gt.tolist().count(False)
+            result[tmp_station]['true_intensity'] = true_intensity_level[gt_intensity-1]
+        else:
+            result[tmp_station]['true_intensity'] = 0
+
+        # 檢查預測情況有沒有超過 1 級
+        if np.any(mask_pred):
+            prediction_intensity = mask_pred.tolist().count(True)
+            result[tmp_station]['pred_intensity'] = pred_intensity_level[prediction_intensity-1]
+        else:
+            result[tmp_station]['pred_intensity'] = 0
+
+        # 計算 leading time
+        for idx, p_inten in enumerate(mask_pred):
+            if p_inten == False:
+                continue
+            
+            level = true_intensity_key[idx+2]
+            pred_time = data[1]['Warning_Time']
+            gt_time = data[1][level]
+            
+            if 'time_diff' not in result[tmp_station]:
+                result[tmp_station]['time_diff'] = {}
+            
+            if gt_time == 0:
+                result[tmp_station]['time_diff'][level] = 'false positive'
+            else:
+                gt_time = datetime.strptime(gt_time, '%Y-%m-%d %H:%M:%S.%f')
+                pred_time = datetime.strptime(pred_time, '%Y-%m-%d %H:%M:%S.%f')
+                if pred_time < gt_time:
+                    time_diff = gt_time - pred_time
+                    time_diff = f"提早 {round(time_diff.seconds + time_diff.microseconds/10000 / 100, 2)} 秒"
+                else:
+                    time_diff = pred_time - gt_time
+                    time_diff = f"晚了 {round(time_diff.seconds + time_diff.microseconds/10000 / 100, 2)} 秒"
+                    
+                result[tmp_station]['time_diff'][level] = time_diff
+            
+    return result
+
+def send_info(df):
+    result = gen_info(df)
+
+    cnt = 0
+    msg = ""
+    for k, v in result.items():
+        msg += f"\n{k} \n預測: {v['pred_intensity']}級, 真實級別: {v['true_intensity']}級\n"
+        msg += f"|\t震度\t|\tleading time\t|\n"
+
+        for tmp_k, tmp_v in v['time_diff'].items():
+            msg += f"|\t{mapping_gal_to_intensity(tmp_k.split('_')[-1])}\t|\t{tmp_v}\t|\n"
+
+        msg += '=-=-=-=-=-=-=-=-'
+        cnt += 1
+
+        # if cnt % 5 == 0:
+        #     # alive_notify(msg)
+        #     msg = ""
+
+    return msg
+
+# sent the notify proved the system is alive
+def alive_notify(msg):
+    message = '報告時間: \n' + (datetime.utcfromtimestamp(time.time()) + timedelta(hours=8)).strftime('%Y-%m-%d %H:%M:%S.%f') + '\n'
+    message += msg
+
+    token = 'gPDTduLxtElER8j4T2glCQXh3vRJZTtSlKjvhfDaCJb'
+    while True:
+        try:
+            url = "https://notify-api.line.me/api/notify"
+            headers = {
+                'Authorization': f'Bearer {token}'
+            }
+            payload = {
+                'message': message,
+            }
+            response = requests.request(
+                "POST",
+                url,
+                headers=headers,
+                data=payload,
+            )
+            if response.status_code == 200:
+                print(f"Success, system is alive -> {response.text}")
+                break
+            else:
+                print(f'(Alive) Error -> {response.status_code}, {response.text}')
+        except Exception as e:
+            print(e)
+
+def output_msg(df_path):
+    df = pd.read_csv(df_path)
+    true_intensity_key = ['Label_0.8gal', 'Label_2.5gal', 'Label_8gal', 'Label_25gal', 'Label_81gal', 'Label_140gal', 'Label_250gal']
+    for key in true_intensity_key:
+        df[key] = df[key].fillna(0)
+    msg = send_info(df)
+    return msg
