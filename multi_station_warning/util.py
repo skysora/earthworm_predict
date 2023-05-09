@@ -175,16 +175,17 @@ def gen_info(df):
     
     for data in df.iterrows():
         tmp_station = data[1]['County'] + ' ' + data[1]['Township'] + ' ' + data[1]['Station_Chinese_Name']
-        
         if tmp_station not in result.keys():
             result[tmp_station] = {}
 
         gt = np.array([data[1][k] for k in true_intensity_key])
         pred = np.array([data[1][k] for k in pred_intensity_key])
         
+        
         mask_gt = np.logical_or(gt == '0', gt == '0.0')
         mask_pred = pred == 1
 
+        
         # 檢查真實情況有沒有超過 1 級
         if np.any(mask_gt):
             gt_intensity = mask_gt.tolist().count(False)
@@ -199,6 +200,7 @@ def gen_info(df):
         else:
             result[tmp_station]['pred_intensity'] = 0
 
+        
         # 計算 leading time
         for idx, p_inten in enumerate(mask_pred):
             if p_inten == False:
@@ -224,12 +226,18 @@ def gen_info(df):
                     time_diff = f"晚了 {round(time_diff.seconds + time_diff.microseconds/10000 / 100, 2)} 秒"
                     
                 result[tmp_station]['time_diff'][level] = time_diff
-            
+        
+        if(int(result[tmp_station]["true_intensity"][0])>=0 and int(str(result[tmp_station]["pred_intensity"])[0])==0):
+            result[tmp_station]['time_diff'] = {}
+            for idx, p_inten in enumerate(mask_gt):
+                if p_inten == False:
+                    continue 
+                level = true_intensity_key[idx]
+                # result[tmp_station]['time_diff'][level] = 'true negative'
     return result
 
 def send_info(df):
     result = gen_info(df)
-
     cnt = 0
     msg = ""
     for k, v in result.items():
@@ -242,9 +250,9 @@ def send_info(df):
         msg += '=-=-=-=-=-=-=-=-'
         cnt += 1
 
-        # if cnt % 5 == 0:
-        #     # alive_notify(msg)
-        #     msg = ""
+        if cnt % 5 == 0:
+            # alive_notify(msg)
+            msg = ""
 
     return msg
 
@@ -284,3 +292,5 @@ def output_msg(df_path):
         df[key] = df[key].fillna(0)
     msg = send_info(df)
     return msg
+
+

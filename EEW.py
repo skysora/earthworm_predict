@@ -219,236 +219,6 @@ def WaveSaver(env_config, waveform_buffer, key_index, nowtime, waveform_buffer_s
             # plt.close() 
             # cnt+=1
 
-# picking: pick and send pick_msg to PICK_RING
-def MultiStationWarning_NO_Picker(waveform_buffer, key_index,env_config, key_cnt, 
-                        stationInfo, device,target_city,target_city_plot,
-                        logfilename_warning,logfilename_notify,upload_TF,
-                        warning_plot_TF):
-    
-    MyModule = PyEW.EWModule(int(env_config["WAVE_RING_ID"]), int(env_config["PYEW_MODULE_ID"]), int(env_config["PYEW_INST_ID"]), 30.0, False)
-    MyModule.add_ring(int(env_config["WAVE_RING_ID"])) # WAVE_RING
-    MyModule.add_ring(int(env_config["PICK_RING_ID"])) # PICK_RING
-    # MyModule.add_ring(int(env_config["OUTPUT_RING_ID"])) # OUTPUT_RING
-    
-    stations_table = json.load(open(env_config["Multi_Station_Table_FILEPATH"], 'r'))
-    stations_table_coords = {}
-    dataDepth = {}
-    for key in stations_table.keys():
-        key_sub = f"{key.split(',')[0]},{key.split(',')[1]}"
-        stations_table_coords[key_sub] = stations_table[key]
-        dataDepth[key_sub] = key.split(',')[2]
-        
-        
-    #預測要的東西
-    pga_thresholds = np.array(env_config["MULTISTATION_THRESHOLDS"].split(','),dtype=np.float32)
-    alpha = np.array(env_config["MULTISTATION_ALPHAS"].split(','),dtype=np.float32)
-    model_path = env_config["Multi_Station_CHECKPOINT_FILEPATH"]
-    config = json.load(open(os.path.join(env_config["Multi_Station_Config_PATH"]), 'r'))
-    model_params = config['model_params'].copy()
-    ens_id = 6
-    model_params['rotation'] = np.pi / ens_id * 4 / (10 - 1)
-    model = models.build_transformer_model(**config['model_params'], device=device, trace_length=3000).to(device)
-    model.load_state_dict(torch.load(model_path,map_location=device)['model_weights'], strict=False)
-
-    model.eval()
-
-    channel_tail = ['Z', 'N', 'E']   
-
-    # 記錄目前 year, month, day，用於刪除過舊的 log files
-    cur = datetime.fromtimestamp(time.time())
-    system_year, system_month, system_day = cur.year, cur.month, cur.day
-
-    # # sleep 120 seconds, 讓波型先充滿 noise，而不是 0
-    # if env_config['SOURCE'] == 'CWB' or env_config['SOURCE'] == 'Palert':
-    #     print('pending...')
-    #     # time.sleep(120)
-    
-    cnt=0
-    while True:
-        cur_waveform_buffer, cur_key_index = waveform_buffer.clone(), key_index.copy()
-        
-        
-        # skip if there is no waveform in buffer or key_index is collect faster than waveform
-        if int(key_cnt.value) == 0 or key_cnt.value < len(key_index):
-            continue
-       
-        # collect the indices of stations that contain 3-channel waveforms
-        toPredict_idx, VtoA_idx, toPredict_scnl = [], [], []
-        for k, v in cur_key_index.items():
-            tmp = k.split('_')
-            if env_config['SOURCE'] == 'Palert' or env_config['SOURCE'] == 'CWB':
-                if tmp[1][-1] == 'Z':             
-                    try:
-                        tmp_idx = [cur_key_index[f"{tmp[0]}_{tmp[1][:2]}{i}_{tmp[2]}_{tmp[3]}"] for i in channel_tail]    # for channel = XXZ
-                        toPredict_idx.append(tmp_idx)
-                    
-                        toPredict_scnl.append(f"{tmp[0]}_{tmp[1]}_{tmp[2]}_{tmp[3]}")
-
-                        # collect indices where measurement is velocity    
-                        if tmp[1][:2] in ['HH', 'EH']:     
-                            VtoA_idx.append(True)
-                        else:
-                            VtoA_idx.append(False)
-
-                    except Exception as e:
-                        continue
-            else:
-                if tmp[1][-1] in ['1', '4', '7']:
-                    try:
-                        tmp_idx = [cur_key_index[f"{tmp[0]}_{tmp[1][:-1]}{i}_{tmp[2]}_{tmp[3]}"] for i in range(int(tmp[1][-1]), int(tmp[1][-1])+3)]    # for Ch1-9
-                        toPredict_idx.append(tmp_idx)
-                    
-                        toPredict_scnl.append(f"{tmp[0]}_{tmp[1]}_{tmp[2]}_{tmp[3]}")
-
-                        # collect indices where measurement is velocity    
-                        if tmp[1][-1] in ['4', '7']:       
-                            VtoA_idx.append(True)
-                        else:
-                            VtoA_idx.append(False)
-
-                    except Exception as e:
-                        continue
-        
-        # skip if there is no station need to predict
-        
-        if len(toPredict_idx) == 0:
-            continue
-
-        # take only 3000-sample waveform
-        toPredict_wave = cur_waveform_buffer[torch.tensor(toPredict_idx, dtype=torch.long)][:, :, :3000]
-        
-        toPredict_scnl = np.array(toPredict_scnl)
-        VtoA_idx = np.array(VtoA_idx)
-       
-        # get the factor and coordinates of stations
-        if env_config['SOURCE'] == 'Palert' or env_config['SOURCE'] == 'CWB':
-            station_factor_coords = get_Palert_CWB_coord(toPredict_scnl, stationInfo)
-
-            # count to gal
-            factor = np.array([f[-1] for f in station_factor_coords]).astype(float)
-            toPredict_wave = toPredict_wave/factor[:, None, None]
-        else:
-            station_factor_coords = get_coord_factor(toPredict_scnl, stationInfo)
-
-            # multiply with factor to convert count to 物理量
-            factor = np.array([f[-1] for f in station_factor_coords])
-            toPredict_wave = toPredict_wave*factor[:, :, None]
-        
-        
-        # preprocess
-        # 1) convert traces to acceleration
-        # 2) 1-45Hz bandpass filter
-        # 3) Z-score normalization
-        # 4) calculate features: Characteristic, STA, LTA
-        # toPredict_wave = filter(toPredict_wave)
-        toPredict_wave = v_to_a(toPredict_wave, VtoA_idx)
-        # toPredict_wave = z_score(toPredict_wave)
-        # toPredict_wave = calc_feats(toPredict_wave)
-        
-        waveforms = np.zeros((1, len(stations_table),3,3000))
-        metadata = np.zeros((1, len(stations_table) ,3))
-        position_list = {}
-        for i  in range(len(station_factor_coords)):
-            station = station_factor_coords[i]
-            try:
-                depth = dataDepth[f"{station[1]},{station[0]}"]
-                station_key = f"{station[1]},{station[0]},{depth}"
-                postion = stations_table[station_key]
-                position_list[postion] = True
-                waveforms[0,postion] = toPredict_wave[i]
-                metadata[0,postion] = np.array([station[1],station[0],depth])
-            except:
-                continue
-        
-        #(1,250,3000,3)
-        waveforms = np.transpose(waveforms,(0,1,3,2))    
-        metadata = location_transformation(metadata)
-        
-
-        
-        mask = np.logical_and((metadata == 0).all(axis=(1, 2)), (waveforms == 0).all(axis=(1, 2, 3)))
-        waveforms[mask, 0, 0, 0] = 1e-9
-        metadata[mask, 0, 0] = 1e-9
-        
-        
-        #  predict
-        toPredict_wave = torch.FloatTensor(waveforms).to(device)/100
-        toPredict_coords = torch.FloatTensor(metadata).to(device)
-        
-            
-        with torch.no_grad():
-            pga_pred = model(toPredict_wave,toPredict_coords).cpu()
-
-        pga_times_pre = np.zeros((pga_thresholds.shape[0],pga_pred.shape[1]), dtype=int)
-            
-        for j,log_level in enumerate(np.log10(pga_thresholds * 9.81)):
-            prob = torch.sum(
-                pga_pred[:, :, :, 0] * (1 - norm.cdf((log_level - pga_pred[:, :, :, 1]) / pga_pred[:, :, :, 2])),
-                axis=-1)
-            exceedance = np.squeeze(prob > alpha[j])  # Shape: stations, 1
-            pga_times_pre[j] = exceedance
-            
-        #(250,4)
-        pga_times_pre = np.transpose(pga_times_pre,(1,0))   
-        
-        #檢查是否有新要預警的測站
-        warn_Flag = False
-        warning_msg=""
-        for city_index in range(pga_times_pre.shape[0]):
-            #update 表格
-            if(set(target_city[city_index][-1]) != set(pga_times_pre[city_index])):
-                indices = [index for (index, item) in enumerate(pga_times_pre[city_index]) if item ==1 ]
-                for warning_thresholds in range(len(pga_thresholds)):
-                    if(warning_thresholds in indices):
-                        target_city[city_index][-1][warning_thresholds] += 1
-                    else:
-                        target_city[city_index][-1][warning_thresholds] += 0
-                    
-                if (len(indices)!=0):
-                    Flag = True
-                    for indice in indices:
-                        for index in range(indice,-1,-1):
-                            if(target_city[city_index][-1][index]==0):
-                                #不預警
-                                Flag=False
-                        if (not Flag) :
-                            target_city[city_index][-1][indice] -= 1
-                        if(Flag) and (target_city[city_index][-1][indice]>1):
-                            Flag = False
-                            
-                    if Flag:
-                        print(f"Warning time: {datetime.utcfromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S.%f')}:{target_city[city_index][0]},{target_city[city_index][-1]}\n")
-                        warning_msg += f"{cnt} Warning time: {datetime.utcfromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S.%f')}:"
-                        warning_msg += f"{target_city[city_index][0]},三級:{target_city[city_index][-1][0]},四級:{target_city[city_index][-1][1]},五弱級:{target_city[city_index][-1][2]},五強級:{target_city[city_index][-1][3]}\n"
-                        target_city_plot.append(target_city)
-                        warn_Flag = True
-                        cnt += 1
-    
-        if warn_Flag:
-            warning_logfile = f"./warning_log/log/{cur.year}-{cur.month}-{cur.day}_warning.log"
-            # multi_station_msg_notify(warning_msg)
-            # 已經是系統時間的隔天，檢查有沒有過舊的 log file，有的話將其刪除
-            if f"{system_year}-{system_month}-{system_day}" != f"{cur.year}-{cur.month}-{cur.day}" or True:
-                toDelete_picking = cur - timedelta(days=int(env_config['DELETE_PICKINGLOG_DAY']))
-
-                toDelete_picking_filename = f"./warning_log/log/{toDelete_picking.year}-{toDelete_picking.month}-{toDelete_picking.day}_warning.log"
-                if os.path.exists(toDelete_picking_filename):
-                    os.remove(toDelete_picking_filename)
-                    
-                logfilename_warning.value = f"./warning_log/log/{system_year}-{system_month}-{system_day}_warning.log"
-                logfilename_notify.value = glob.glob("./warning_log/notify/*")
-                upload_TF.value += 1
-                
-                #reset system time
-                system_year, system_month, system_day = cur.year, cur.month, cur.day
-                
-            # writing picking log file
-            with open(warning_logfile,"a") as pif:
-                pif.write(warning_msg)
-                pif.write('\n')
-                pif.close()           
-            warning_plot_TF.value += 1    
-
 def MultiStationWarning(waveform_buffer, key_index,env_config, key_cnt, 
                         stationInfo, device,target_city,target_city_plot,
                         logfilename_warning,logfilename_notify,upload_TF,
@@ -507,7 +277,8 @@ def MultiStationWarning(waveform_buffer, key_index,env_config, key_cnt,
     cnt = 0
     # collect the indices of stations that contain 3-channel waveforms
     First_Station_Flag = False
-    
+    stations_table = json.load(open(env_config["Multi_Station_Table_FILEPATH"], 'r'))
+    stations_table_chinese = json.load(open(env_config["Multi_Station_Table_Chinese_FILEPATH"], 'r'))
     while True:
         
         # get picked station in PICK_RING
@@ -541,10 +312,8 @@ def MultiStationWarning(waveform_buffer, key_index,env_config, key_cnt,
             with open(warning_logfile,"a") as pif:
                 pif.write(f"Description,Picking_Time,Warning_Time,Station_Id,County,Township,Station_Chinese_Name,8gal,25gal,81gal,140gal,250gal,Label_0.8gal,Label_2.5gal,Label_8gal,Label_25gal,Label_81gal,Label_140gal,Label_250gal")
                 pif.write('\n')
-
+                
             # create update table
-            stations_table = json.load(open(env_config["Multi_Station_Table_FILEPATH"], 'r'))
-            stations_table_chinese = json.load(open(env_config["Multi_Station_Table_Chinese_FILEPATH"], 'r'))
             count = 0
             print("Create Table")
             for key in stations_table.keys():
@@ -553,9 +322,10 @@ def MultiStationWarning(waveform_buffer, key_index,env_config, key_cnt,
                 target_city[count] = [stations_table_chinese[key],target_coord[0],target_coord[1],[0,0,0,0,0]]
                 count += 1 
             print("Finish Create Table")
-         
+        
+        seconds_stop = 30
         if(First_Station_Flag):
-            if((datetime.fromtimestamp(time.time()) - start_count).seconds >= 30):
+            if((datetime.fromtimestamp(time.time()) - start_count).seconds >= seconds_stop):
                 print(f"reset")
                 First_Station_Flag = False
                 log_name.value = warning_logfile
@@ -564,6 +334,15 @@ def MultiStationWarning(waveform_buffer, key_index,env_config, key_cnt,
                 warning_plot_TF.value += 1
                 ok_wait_list=[]
                 wait_list=[]
+                # create update table
+                count = 0
+                print("Create Table")
+                for key in stations_table.keys():
+                    target_coord = key.split(',')
+                    key = "%.4f,%.4f" % (float(target_coord[0]), float(target_coord[1]))
+                    target_city[count] = [stations_table_chinese[key],target_coord[0],target_coord[1],[0,0,0,0,0]]
+                    count += 1 
+                print("Finish Create Table")
         
         
         #append data
@@ -591,13 +370,9 @@ def MultiStationWarning(waveform_buffer, key_index,env_config, key_cnt,
                   break
             depth = dataDepth[f"{station_coord_factor[1]},{station_coord_factor[0]}"]
             station_key = f"{station_coord_factor[1]},{station_coord_factor[0]},{depth}"
-            # station_key = f"{station_coord_factor[1]},{station_coord_factor[0]},{station_coord_factor[2]/1000}"
             if(station_key in stations_table.keys()):
                 position = stations_table[station_key]
                 pick_index = int((float(pick_now)-float(pick_info[10]))*100)
-                # print(f"position:{position}")
-                # print(f"{datetime.fromtimestamp(float(pick_now))}")
-                # print(f"{datetime.fromtimestamp(float(pick_info[10]))}")
                 if(position in wait_list_position):
                     wait_list_pick_index[wait_list_position.index(position)] = pick_index
                     continue
@@ -647,14 +422,10 @@ def MultiStationWarning(waveform_buffer, key_index,env_config, key_cnt,
             # One of 3 channel is not in key_index(i.e. waveform)
             if (scnl_z not in key_index) or (scnl_n not in key_index) or (scnl_e not in key_index):
                 print(f"{scnl} one of 3 channel missing")
-                wait_list.pop(station_index)
-                if(len(wait_list)>0):
-                    continue
-                else:
-                  break
+                continue
             
             
-            time_before = 0
+            time_before = 5
             # get waveform of z,n,e starting from ptime
             start_index = max((int(env_config["STORE_LENGTH"])//2)-first_station_index-time_before*100,4000)
             now_index = (int(env_config["STORE_LENGTH"])//2)
@@ -672,7 +443,6 @@ def MultiStationWarning(waveform_buffer, key_index,env_config, key_cnt,
             
             #waveforms (1,250,3,3000)
             waveforms[0,position,:,0:inp.shape[1]] = inp
-            waveforms[0,position,:,:(wait_list_pick_index[station_index]-first_station_index)] = 0
             
             # pga_threshold = [0.081,0.25,0.81,2.5,8.1,14,25]
             # color = ['#6A0DAD','#FFC0CB','#0000FF','#90EE90','#FFFF00','#FF0000','#FFA500'] 
@@ -789,7 +559,15 @@ def WarningShower(env_config,stationInfo,waveform_buffer,key_index,target_city_p
         key_sub = f"{key.split(',')[0]},{key.split(',')[1]}"
         stations_table_coords[key_sub] = stations_table[key]
         dataDepth[key_sub] = key.split(',')[2]  
-        
+    
+    # create update table
+    target_city_shower = {}
+    for key in stations_table.keys():
+        target_coord = key.split(',')
+        key = "%.4f,%.4f" % (float(target_coord[0]), float(target_coord[1]))
+        target_city_shower[key] = [stations_table_chinese[key],target_coord[0],target_coord[1],[0,0,0,0,0]]
+            
+            
     while True:
 
         # don't plot, keep pending ...
@@ -822,9 +600,6 @@ def WarningShower(env_config,stationInfo,waveform_buffer,key_index,target_city_p
             if(station_key in stations_table.keys()):
                 position = stations_table[station_key]
                 pick_index = int((float(pick_now)-float(pick_info[10]))*100)
-                # print(f"position:{position}")
-                # print(f"{datetime.fromtimestamp(float(pick_now))}")
-                # print(f"{datetime.fromtimestamp(float(pick_info[10]))}")
                 wait_list_pick_index.append(pick_index)
                 wait_list_position.append(position)
                 ok_wait_list.append(pick_info)
@@ -870,27 +645,22 @@ def WarningShower(env_config,stationInfo,waveform_buffer,key_index,target_city_p
                 scnl_z = f"{station}_{channel[0]}_{network}_{location}"
                 scnl_n = f"{station}_{channel[1]}_{network}_{location}"
                 scnl_e = f"{station}_{channel[2]}_{network}_{location}"
-             
             row = df[df['Station_Id']==str(station)]
-            station_index += 1
-            if row.empty:
+            if (row.empty):
                 print(f"{str(station)} is empty")
                 continue
-            
-            pred = [list(row["8gal"])[0],list(row["25gal"])[0],list(row["81gal"])[0],list(row["140gal"])[0],list(row["250gal"])[0]]
-        
+            station_index += 1
             time_before = 5
             # get waveform of z,n,e starting from ptime
-            # start_index = max((int(env_config["STORE_LENGTH"])//2)-first_station_index-time_before*100,0)
-            start_index = 0
-            start_index_time = datetime.fromtimestamp(float(time.time())) - timedelta(seconds=int(length/100))
+            # first_station_index = 500
+            # first_station_time = float(time.time()) - timedelta(seconds=70).total_seconds()
             
-            warning_index = int((float(datetime.timestamp(datetime.strptime(f'{list(row["Warning_Time"])[0]}',"%Y-%m-%d %H:%M:%S.%f")))-float(datetime.timestamp(datetime.strptime(f'{start_index_time}',"%Y-%m-%d %H:%M:%S.%f"))))*100)
+            start_index = first_station_index - time_before*100
+            start_index_time = datetime.fromtimestamp(float(first_station_time) - timedelta(seconds=time_before).total_seconds())
+            
             pick_index = int((float(pick_info[10])-float(datetime.timestamp(datetime.strptime(f'{start_index_time}',"%Y-%m-%d %H:%M:%S.%f"))))*100)
-            
-            # warning_index = int((float(datetime.timestamp(datetime.strptime(f'{list(row["Warning_Time"])[0]}',"%Y-%m-%d %H:%M:%S.%f")))-float(first_station_time))*100)
-            # pick_index = int((float(pick_info[10])-float(first_station_time))*100)
-            
+            # warning_index = int((float(datetime.timestamp(datetime.strptime(f'{list(row["Warning_Time"])[0]}',"%Y-%m-%d %H:%M:%S.%f")))-float(datetime.timestamp(datetime.strptime(f'{start_index_time}',"%Y-%m-%d %H:%M:%S.%f"))))*100)
+                
             hlz = target_waveform_plot[-1][key_index[scnl_z]][start_index:length]*0.01
             hln = target_waveform_plot[-1][key_index[scnl_n]][start_index:length]*0.01
             hle = target_waveform_plot[-1][key_index[scnl_e]][start_index:length]*0.01
@@ -911,6 +681,7 @@ def WarningShower(env_config,stationInfo,waveform_buffer,key_index,target_city_p
             color = ['#6A0DAD','#FFC0CB','#0000FF','#90EE90','#FFFF00','#FF0000','#FFA500'] 
             hor_acc,_,_,_ = calc_pga(waveforms[0,position,0,:], waveforms[0,position,1,:], waveforms[0,position,2,:], '', 100)
             key = "%.4f,%.4f" % (float(station_coord_factor[1]), float(station_coord_factor[0]))
+            target_city_row = target_city_shower[key][0].split(',')
             file_name = stations_table_chinese[key]
             plt.figure(figsize=(20, 10))
             plt.subplot(511)
@@ -922,25 +693,42 @@ def WarningShower(env_config,stationInfo,waveform_buffer,key_index,target_city_p
             plt.subplot(514)
             #label
             plt.plot(hor_acc)
-            plt.title("Label")
             log_title = ["Label_0.8gal","Label_2.5gal","Label_8gal","Label_25gal","Label_81gal","Label_140gal","Label_250gal"]
             for level in range(len(pga_threshold)):
                 pga_time = np.argmax(hor_acc > pga_threshold[level]*0.01*9.81)
-                if (pga_time==0):
+                if (pga_time == 0):
                     continue
                 label_time = start_index_time + timedelta(seconds=int(pga_time/100)) - timedelta(seconds=time_before)
+                row = df[df['Station_Id']==str(station)]
+                # Description,Picking_Time,Warning_Time,Station_Id,County,Township,Station_Chinese_Name,
+                # 8gal,25gal,81gal,140gal,250gal,Label_0.8gal,Label_2.5gal,Label_8gal,Label_25gal,Label_81gal,Label_140gal,Label_250gal
+                if row.empty:
+                    insert_row = pd.DataFrame({"Description":[f"{station_index}"], "Picking_Time":[f"{datetime.fromtimestamp(float(pick_info[10]))}"],
+                                                "Station_Id":[f"{target_city_row[0]}"],"County":[f"{target_city_row[1]}"],
+                                                "Township":[f"{target_city_row[2]}"],"Station_Chinese_Name":[f"{target_city_row[3]}"],
+                                                "8gal":["0"],"25gal":["0"],"81gal":["0"],"140gal":["0"],"250gal":["0"]})
+                    df = pd.concat([df,insert_row], ignore_index=True)
+                    
                 df.loc[df[df['Station_Id'] == str(station)].index, [log_title[level]]] = label_time
                 plt.axvline(pga_time,c=color[level],label=f"{pga_threshold[level]}*0.01*9.81")
             plt.legend()
             #pred
             plt.subplot(515)
-            pred_level = [index for (index, item) in enumerate(pred) if item == 1][-1]
-            plt.title(f"Pred:{pred_level}")
             plt.plot(hor_acc)
-            for level in range(pred_level+1):
-                plt.axvline(warning_index,c=color[level+2],label=f"{pga_threshold[level+2]}*0.01*9.81")
-            plt.axvline(pick_index,c="g",label=f"pick")   
-            plt.legend()
+            row = df[df['Station_Id']==str(station)]
+            if(len(list(row["8gal"]))!=0):
+                pred = [list(row["8gal"])[0],list(row["25gal"])[0],list(row["81gal"])[0],list(row["140gal"])[0],list(row["250gal"])[0]]
+                pred_level = [index for (index, item) in enumerate(pred) if item == 1]
+                if (len(pred_level)==0 or (row.empty)):
+                    print(f"{str(station)} is empty")
+                else:
+                    pred_level = [index for (index, item) in enumerate(pred) if item == 1][-1]
+                    plt.title(f"Pred:{pred_level}")
+                    warning_index = int((float(datetime.timestamp(datetime.strptime(f'{list(row["Warning_Time"])[0]}',"%Y-%m-%d %H:%M:%S.%f")))-float(datetime.timestamp(datetime.strptime(f'{start_index_time}',"%Y-%m-%d %H:%M:%S.%f"))))*100)
+                    for level in range(pred_level+1):
+                        plt.axvline(warning_index,c=color[level+2],label=f"{pga_threshold[level+2]}*0.01*9.81")
+                    plt.axvline(pick_index,c="g",label=f"pick")   
+                    plt.legend()
             plt.savefig(f'./{plot_filename_folder}/{file_name}.png')
             plt.clf()
             plt.close() 
