@@ -1,0 +1,4 @@
+Description,Picking_Time,Warning_Time,Station_Id,County,Township,Station_Chinese_Name,8gal,25gal,81gal,140gal,250gal,Label_0.8gal,Label_2.5gal,Label_8gal,Label_25gal,Label_81gal,Label_140gal,Label_250gal
+0,2023-05-12 10:54:44.720710,2023-05-12 10:54:52.974526,EHYH,花蓮縣,萬榮鄉,紅葉,1,1,0,0,0
+1,2023-05-12 10:54:45.690710,2023-05-12 10:54:59.604637,CHKH,臺東縣,成功鎮,博愛,1,0,0,0,0
+2,2023-05-12 10:54:45.440710,2023-05-12 10:55:03.146528,EGFH,花蓮縣,光復鄉,光復,1,1,0,0,0
