@@ -356,9 +356,17 @@ def MultiStationWarning(waveform_buffer, key_index,env_config,stationInfo,device
             channel = pick_info[1]
             network = pick_info[2]
             location = pick_info[3]
+            quality = pick_info[-3]
             scnl = f"{station}_{channel}_{network}_{location}"
             station_coord_factor = get_coord_factor(np.array([scnl]), stationInfo)[0]
             #============================================================篩選資料============================================================
+            #判斷pick品質
+            if(int(quality) != 0 and int(quality) != 1):
+                if(len(wait_list)>0):
+                    continue
+                else:
+                  break
+            
             # cannot search station Info
             if (station_coord_factor[1]==-1):
                 print(f"{scnl} not find in stationInfo")
