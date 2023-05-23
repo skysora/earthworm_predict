@@ -4,7 +4,13 @@ from staticmap import StaticMap, CircleMarker, Polygon, Line
 import requests
 import matplotlib.pyplot as plt      # v 3.3.2
 import numpy as np
-
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+import requests
+import torch
+import time
+import os
 def location_transformation(metadata, target=None):
     transform_target_only = False
     scale_metadata = True
@@ -145,12 +151,70 @@ def multi_station_msg_notify(msg):
     except Exception as e:
         print(e)
         
-        
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-import requests
-import time
+
+def draw_origin_wave(z,n,e,start_index,now_index,diff_seconds,folder,file_name):
+    plt.figure(figsize=(20, 10))
+    plt.subplot(511)
+    plt.title(f"start_index:{start_index},now_index:{now_index}")
+    plt.plot(z)
+    plt.axvline(now_index,c="r",label=f"now_index")
+    plt.subplot(512)
+    plt.plot(n)
+    plt.axvline(now_index,c="r",label=f"now_index")
+    plt.subplot(513)
+    plt.plot(e)
+    plt.axvline(start_index,c="g",label=f"start_index") 
+    plt.axvline(now_index,c="r",label=f"now_index") 
+    if not os.path.exists(f'./img/{diff_seconds}'):
+        # If it doesn't exist, create it
+        os.makedirs(f'./img/{diff_seconds}')
+    plt.savefig(f'./img/{diff_seconds}/{file_name}.png')
+    plt.clf()
+
+def slove_convex_wave(inp,diff_seconds=None,file_name=None):
+
+    indices_hlz  = np.where(np.diff(inp[0]) == 0)[0]
+    indices_hln  = np.where(np.diff(inp[1]) == 0)[0]
+    indices_hle  = np.where(np.diff(inp[2]) == 0)[0]
+    
+    # indices_hlz_previous = [num - 1 for num in indices_hlz if(num-1>0)]
+    # indices_hln_previous = [num - 1 for num in indices_hln if(num-1>0)]
+    # indices_hle_previous = [num - 1 for num in indices_hle if(num-1>0)]
+    
+    non_indices_hlz  = np.where(np.diff(inp[0]) != 0)[0]
+    non_indices_hln  = np.where(np.diff(inp[1]) != 0)[0]
+    non_indices_hle  = np.where(np.diff(inp[2]) != 0)[0]
+    
+    if(len(indices_hlz)>1):
+        inp[0][indices_hlz] = torch.mean(inp[0][non_indices_hlz], dim=-1)
+        # inp[0][indices_hlz_previous] = torch.mean(inp[0][non_indices_hlz], dim=-1)
+        inp[0][0:10] = torch.mean(inp[0][non_indices_hlz], dim=-1)
+    if(len(indices_hln)>1):
+        inp[1][indices_hln] = torch.mean(inp[1][non_indices_hln], dim=-1)
+        # inp[0][indices_hln_previous] = torch.mean(inp[0][non_indices_hlz], dim=-1)
+        inp[1][0:10] = torch.mean(inp[1][non_indices_hln], dim=-1)
+    if(len(indices_hle)>1):
+        inp[2][indices_hle] = torch.mean(inp[2][non_indices_hle], dim=-1)
+        # inp[0][indices_hle_previous] = torch.mean(inp[0][non_indices_hlz], dim=-1)
+        inp[2][0:10] = torch.mean(inp[2][non_indices_hle], dim=-1) 
+    
+    if(diff_seconds):
+        plt.figure(figsize=(20, 10))
+        plt.subplot(511)
+        plt.plot(inp[0])
+        plt.title(f"{indices_hlz}")
+        plt.subplot(512)
+        plt.plot(inp[1])
+        plt.title(f"{indices_hln}")
+        plt.subplot(513)
+        plt.plot(inp[2])
+        plt.title(f"{indices_hle}")
+        if not os.path.exists(f'./img_2/{diff_seconds}'):
+            # If it doesn't exist, create it
+            os.makedirs(f'./img_2/{diff_seconds}')
+        plt.savefig(f'./img_2/{diff_seconds}/{file_name}.png')
+        plt.clf()
+    return inp
 
 def mapping_gal_to_intensity(gal):
     if gal == '8gal':
@@ -174,7 +238,7 @@ def gen_info(df):
     pred_intensity_key = ['8gal', '25gal', '81gal', '140gal', '250gal']
     
     for data in df.iterrows():
-        tmp_station = data[1]['County'] + ' ' + data[1]['Township'] + ' ' + data[1]['Station_Chinese_Name']
+        tmp_station = str(data[1]['County']) + ' ' + str(data[1]['Township']) + ' ' + str(data[1]['Station_Chinese_Name'])
         if tmp_station not in result.keys():
             result[tmp_station] = {}
 
@@ -227,7 +291,7 @@ def gen_info(df):
                     
                 result[tmp_station]['time_diff'][level] = time_diff
         
-        if(int(result[tmp_station]["true_intensity"][0])>=0 and int(str(result[tmp_station]["pred_intensity"])[0])==0):
+        if(int(str(result[tmp_station]["true_intensity"])[0])>=0 and int(str(result[tmp_station]["pred_intensity"])[0])==0):
             result[tmp_station]['time_diff'] = {}
             for idx, p_inten in enumerate(mask_gt):
                 if p_inten == False:
@@ -250,9 +314,9 @@ def send_info(df):
         msg += '=-=-=-=-=-=-=-=-'
         cnt += 1
 
-        if cnt % 5 == 0:
-            # alive_notify(msg)
-            msg = ""
+        # if cnt % 5 == 0:
+        #     # alive_notify(msg)
+        #     msg = ""
 
     return msg
 

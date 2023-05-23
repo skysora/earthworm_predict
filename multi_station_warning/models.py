@@ -271,7 +271,7 @@ class WaveformsEmbedding(nn.Module):
         self.LayerNorm = LayerNorm(mlp_dims)
 
     def forward(self, x, waveforms_mask):
-        waveforms_mask = torch.unsqueeze(waveforms_mask,-1)
+        waveforms_mask = torch.unsqueeze(waveforms_mask,-1).to(x.device)
         x = x * waveforms_mask
         x = self.TimeDistributed(x)
         x = self.LayerNorm(x)
@@ -300,7 +300,7 @@ class TotalEmbedding(nn.Module):
         
         att_mask = torch.Tensor(tmp).to(self.device)
 
-        waveforms = self.WaveformsEmbedding(waveforms, waveforms_mask)
+        waveforms = self.WaveformsEmbedding(waveforms.to(inputs.device), waveforms_mask)
         w = torch.zeros((250),requires_grad=True).to(self.device).long()
         segmentEmbedding = self.SegmentEmbedding(w)
         if not self.alternative_coords_embedding:
@@ -466,7 +466,7 @@ class FullModel(nn.Module):
                                                                output_mlp_dims=output_mlp_dims, pga_mixture=pga_mixture)
 
     def forward(self, waveforms, inputs):
-        x, att_mask, station_mask = self.TotalEmbedding(waveforms, inputs)
+        x, att_mask, station_mask = self.TotalEmbedding(waveforms, inputs.to(waveforms.device))
         w = torch.zeros((250),requires_grad=True).to(self.device).long()
         x = self.Transformer(x, att_mask, station_mask)
         segmentEmbedding = self.SegmentEmbedding(w)
