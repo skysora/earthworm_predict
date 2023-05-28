@@ -165,10 +165,10 @@ def draw_origin_wave(z,n,e,start_index,now_index,diff_seconds,folder,file_name):
     plt.plot(e)
     plt.axvline(start_index,c="g",label=f"start_index") 
     plt.axvline(now_index,c="r",label=f"now_index") 
-    if not os.path.exists(f'./img/{diff_seconds}'):
+    if not os.path.exists(f'./{folder}/{diff_seconds}'):
         # If it doesn't exist, create it
-        os.makedirs(f'./img/{diff_seconds}')
-    plt.savefig(f'./img/{diff_seconds}/{file_name}.png')
+        os.makedirs(f'./{folder}/{diff_seconds}')
+    plt.savefig(f'./{folder}/{diff_seconds}/{file_name}.png')
     plt.clf()
 
 def slove_convex_wave(inp,diff_seconds=None,file_name=None):
