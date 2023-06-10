@@ -97,8 +97,37 @@ def plot_wave(waves,position_list):
         plt.close()
       
 # send the picking info to Line notify
-def multi_station_plot_notify(name):
+def multi_station_plot_notify_2500(name):
     token = "uAUGiQLwsDHPjahFHAPWEmTztOFipJIB4O8bmhaFlLm"
+    
+    msg = name.split('/')[-1].split('.')[0] 
+    message = f"Prediction: {msg}\n"
+
+    try:
+        url = "https://notify-api.line.me/api/notify"
+        headers = {
+            'Authorization': f'Bearer {token}'
+        }
+        payload = {
+            'message': message,
+        }
+        image = {
+            'imageFile': open(name, 'rb'),
+        }
+        response = requests.request(
+            "POST",
+            url,
+            headers=headers,
+            data=payload,
+            files=image,
+        )
+        if response.status_code == 200:
+            print(f"Success waveform prediction -> {response.text}")
+    except Exception as e:
+        print(e)
+        
+def multi_station_plot_notify_6000(name):
+    token = "2vsdo6wqXZmUNVjCWGfQzsTOHkMcXkGdjLWBtOP3LrF"
     
     msg = name.split('/')[-1].split('.')[0] 
     message = f"Prediction: {msg}\n"
